@@ -1,3 +1,0 @@
-fastapi==0.115.12
-uvicorn[standard]==0.34.2
-openbb==4.4.4
