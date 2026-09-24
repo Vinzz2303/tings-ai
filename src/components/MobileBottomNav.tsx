@@ -3,13 +3,14 @@ import { Link, useLocation } from 'react-router-dom'
 import { Home, PieChart, MessageSquare, Zap } from 'lucide-react'
 import { useAuthSession } from '../utils/useAuthSession'
 import { hasProAccess } from '../utils/entitlements'
+import { isPersonalDomain } from '../utils/domain'
 
 export default function MobileBottomNav() {
   const location = useLocation()
   
-  // Hide on public auth pages
+  // Hide on personal domain and public auth pages
   const hiddenPaths = ['/login', '/signup', '/forgot', '/reset', '/verify-email', '/']
-  if (hiddenPaths.includes(location.pathname)) {
+  if (isPersonalDomain() || hiddenPaths.includes(location.pathname)) {
     return null
   }
 

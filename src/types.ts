@@ -10,6 +10,7 @@ export type AiMessage = {
   role: AiRole
   content: string
   structured?: AskTingAiStructuredResponse
+  image?: string
 }
 
 export type AiChatSession = {

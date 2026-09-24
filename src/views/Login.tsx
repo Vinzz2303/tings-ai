@@ -100,10 +100,28 @@ export default function Login() {
         body: JSON.stringify({ email: email.trim(), password })
       })
       if (!res.ok) {
-        const errorData = (await res.json()) as { error?: string }
-        throw new Error(errorData.error || 'Login gagal')
+        let errorMessage = 'Login gagal'
+        try {
+          const isJson = res.headers.get('content-type')?.includes('application/json')
+          if (isJson) {
+            const errorData = await res.json()
+            errorMessage = errorData.error || errorMessage
+          } else {
+            errorMessage = `Server Error (${res.status}): Sistem sedang maintenance.`
+          }
+        } catch (e) {
+          errorMessage = 'Tidak dapat memproses respons server.'
+        }
+        throw new Error(errorMessage)
       }
-      const data = (await res.json()) as LoginResponse
+      
+      let data: LoginResponse
+      try {
+        data = await res.json()
+      } catch (e) {
+        throw new Error('Respons server tidak valid.')
+      }
+
       persistAuthSession(data?.token || '', data.user || null)
       navigate('/komando-pagi', { replace: true })
     } catch (err) {

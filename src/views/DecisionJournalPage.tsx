@@ -57,8 +57,17 @@ export default function DecisionJournalPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <div>
+          <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold tracking-tight text-white">Decision Journal</h1>
+            <div className="group relative flex items-center justify-center">
+              <div className="w-5 h-5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center text-[10px] font-bold cursor-help hover:bg-indigo-500/20 transition-colors">
+                ?
+              </div>
+              <div className="absolute left-1/2 bottom-full mb-2 -translate-x-1/2 w-64 bg-slate-800 text-xs text-slate-300 p-3 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all pointer-events-none border border-slate-700 z-50">
+                <strong className="text-white block mb-1">Kurangi Emosi, Tambah Logika</strong>
+                Catat alasan investasi sebelum klik tombol Buy/Sell di sekuritas Anda. AI kami akan memberi tahu jika aset yang Anda pilih mengganggu keseimbangan risiko (Risk Budget) portofolio Anda.
+              </div>
+            </div>
           </div>
         </div>
 

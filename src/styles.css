@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root{
+  /* ─── Core Palette ─── */
   --bg:#0b0d12;
   --bg-2:#0f131b;
   --surface:#141a26;
@@ -10,15 +11,21 @@
   --line:rgba(255,255,255,0.08);
   --muted:#a7b0bf;
   --text:#eef2f7;
-  --accent:#d6b26b;
-  --accent-soft:rgba(214,178,107,0.16);
-  --accent-2:#8fbfba;
+  /* ─── Accent (locked, single source of truth) ─── */
+  --accent:#8fbfba;          /* Teal – primary accent */
+  --accent-soft:rgba(143,191,186,0.14);
+  --accent-gold:#d6b26b;     /* Gold – data / financial highlight */
+  --accent-gold-soft:rgba(214,178,107,0.14);
   --glass:rgba(17,21,31,0.65);
+  /* ─── Typography ─── */
+  --font-display:'Archivo Black','Plus Jakarta Sans',sans-serif;
+  --font-body:'Geist','Satoshi','Inter',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','IBM Plex Mono','SF Mono',monospace;
 }
 *{box-sizing:border-box}
 body{
   margin:0;
-  font-family:"Manrope", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-family:var(--font-body);
   background:
     radial-gradient(1200px 600px at 15% -10%, rgba(214,178,107,0.18), transparent 55%),
     radial-gradient(800px 500px at 85% 0%, rgba(143,191,186,0.12), transparent 60%),
@@ -65,9 +72,11 @@ body::after{
 .container{max-width:1140px;margin:0 auto;padding:2.5rem 2rem}
 .container-wide{max-width:1280px}
 h1,h2,h3{
-  font-family:"Cormorant Garamond", "Times New Roman", serif;
-  letter-spacing:0.5px;
+  font-family:var(--font-display);
+  letter-spacing:-0.02em;
   margin:0 0 0.6rem;
+  font-weight:900;
+  line-height:1.1;
 }
 h1{font-size:3.1rem}
 h2{font-size:2.3rem}
@@ -147,7 +156,7 @@ p{margin:0 0 1rem}
 }
 .brand{
   font-weight:700;
-  font-family:"Cormorant Garamond", "Times New Roman", serif;
+  font-family:var(--font-display);
   font-size:1.2rem;
   color:var(--text);
 }
@@ -187,6 +196,98 @@ nav a[aria-current='page']::after,
   width:70%;
   left:15%;
 }
+
+/* ── Floating Pill Navbar (faturachman.my.id) ────────────────────── */
+.navbar-pill {
+  position: fixed;
+  top: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 9999px;
+  background: rgba(11, 13, 18, 0.82);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  max-width: 95vw;
+}
+
+.navbar-pill-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text);
+  text-decoration: none;
+  padding: 0.2rem 0.6rem;
+  display: flex;
+  align-items: center;
+}
+
+.navbar-pill-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 0 0.2rem;
+  flex-shrink: 0;
+}
+
+.navbar-pill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 9999px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.navbar-pill-link:hover,
+.navbar-pill-link.active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Tech Stack Marquee Animation ─────────────────────── */
+@keyframes marqueeLeft {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes marqueeRight {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(0%); }
+}
+
+.animate-marquee-left {
+  animation: marqueeLeft 25s linear infinite !important;
+  width: max-content !important;
+  display: flex !important;
+}
+
+.animate-marquee-right {
+  animation: marqueeRight 25s linear infinite !important;
+  width: max-content !important;
+  display: flex !important;
+}
+
+.animate-marquee-left:hover,
+.animate-marquee-right:hover {
+  animation-play-state: paused;
+}
+
+
 .nav-link-button{
   background:none;
   border:0;
@@ -676,7 +777,7 @@ textarea:focus-visible,
 .faq-item h4{
   margin:0;
   font-size:1rem;
-  font-family:"Manrope", "Segoe UI", sans-serif;
+  font-family:var(--font-body);
   flex: 1;
 }
 .faq-item p{
@@ -1206,7 +1307,7 @@ textarea:focus-visible,
   gap:0.8rem;
 }
 .site-footer-brand-name{
-  font-family:"Cormorant Garamond", "Times New Roman", serif;
+  font-family:var(--font-display);
   font-size:1.4rem;
   font-weight:700;
   color:var(--text);
@@ -1218,7 +1319,7 @@ textarea:focus-visible,
   max-width:300px;
 }
 .site-footer-col h4{
-  font-family:"Manrope", sans-serif;
+  font-family:var(--font-body);
   font-size:0.7rem;
   font-weight:700;
   text-transform:uppercase;
@@ -4427,7 +4528,7 @@ textarea:focus-visible,
 }
 
 .auth-brand-name {
-  font-family: 'Cormorant Garamond', serif;
+  font-family: var(--font-display);
   font-size: 1.4rem;
   font-weight: 700;
   color: var(--text);
@@ -4442,7 +4543,7 @@ textarea:focus-visible,
 }
 
 .auth-left-title {
-  font-family: 'Cormorant Garamond', serif;
+  font-family: var(--font-display);
   font-size: 2rem;
   font-weight: 700;
   color: var(--text);
@@ -4511,7 +4612,7 @@ textarea:focus-visible,
 }
 
 .auth-stat-value {
-  font-family: 'Cormorant Garamond', serif;
+  font-family: var(--font-display);
   font-size: 1.2rem;
   font-weight: 700;
   color: #F5C842;
@@ -4669,7 +4770,7 @@ textarea:focus-visible,
 }
 
 .auth-form-title {
-  font-family: 'Cormorant Garamond', serif;
+  font-family: var(--font-display);
   font-size: 2rem;
   font-weight: 700;
   color: var(--text);
@@ -5051,7 +5152,7 @@ textarea:focus-visible,
 }
 
 .auth-done-title {
-  font-family: 'Cormorant Garamond', serif;
+  font-family: var(--font-display);
   font-size: 1.4rem;
   font-weight: 700;
   color: var(--text);

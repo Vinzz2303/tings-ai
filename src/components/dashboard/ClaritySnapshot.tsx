@@ -17,30 +17,32 @@ export default function ClaritySnapshot({ copy, decisionContext }: Props) {
   )
 
   return (
-    <section className="card dashboard-card" id="clarity-snapshot">
-      <div className="dashboard-summary-head" style={{ marginBottom: '0.2rem' }}>
-        <div>
-          <p className="dashboard-summary-kicker">{copy.claritySnapshot}</p>
-          <h3 style={{ fontSize: '1.1rem' }}>{copy.heroSummary}</h3>
-        </div>
+    <section className="py-10" id="clarity-snapshot">
+      <div className="mb-8">
+        <p className="text-[10px] font-mono text-teal-500/80 uppercase tracking-widest mb-3">
+          [ {copy.claritySnapshot} ]
+        </p>
+        <h3 className="text-xl md:text-2xl font-serif text-slate-200 max-w-2xl leading-relaxed">
+          {copy.heroSummary}
+        </h3>
       </div>
 
-      <div className="dashboard-stat-row" style={{ marginTop: '0.9rem' }}>
-        <div className="dashboard-stat-pill">
-          <span className="dashboard-stat-label">{copy.marketConditionLabel}</span>
-          <strong>{decisionContext.marketRegime}</strong>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-6 border-t border-white/[0.05]">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">{copy.marketConditionLabel}</span>
+          <strong className="text-sm text-slate-200 font-medium">{decisionContext.marketRegime}</strong>
         </div>
-        <div className="dashboard-stat-pill">
-          <span className="dashboard-stat-label">{copy.riskLevelLabel}</span>
-          <strong>{decisionContext.riskLevel}</strong>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">{copy.riskLevelLabel}</span>
+          <strong className="text-sm text-slate-200 font-medium">{decisionContext.riskLevel}</strong>
         </div>
-        <div className="dashboard-stat-pill">
-          <span className="dashboard-stat-label">{copy.portfolioFitLabel}</span>
-          <strong>{decisionContext.userStatus}</strong>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">{copy.portfolioFitLabel}</span>
+          <strong className="text-sm text-slate-200 font-medium">{decisionContext.userStatus}</strong>
         </div>
-        <div className="dashboard-stat-pill">
-          <span className="dashboard-stat-label">{copy.confidenceLabel}</span>
-          <strong>{confidenceValue}</strong>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">{copy.confidenceLabel}</span>
+          <strong className="text-sm text-slate-200 font-medium">{confidenceValue}</strong>
         </div>
       </div>
     </section>

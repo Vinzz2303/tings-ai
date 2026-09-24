@@ -12,3 +12,8 @@ react-tailwind-portfolio/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+.env.local
+.env.*
+server/.env
+server/dist/
+openbb_env/

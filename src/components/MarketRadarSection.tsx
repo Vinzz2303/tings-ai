@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { getExploreI18n } from '../utils/exploreIntelligenceI18n'
 import { API_URL } from '../utils/api'
+import FirstRunTooltip from './FirstRunTooltip'
 
 interface MarketRadarProps {
   ticker: string
@@ -11,8 +12,13 @@ interface MarketRadarProps {
 
 // ── Asset type detection ──────────────────────────────────────────────────────
 
-// Crypto pattern: ends in -USD or known crypto names
-const CRYPTO_TICKERS = new Set(['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD', 'DOGE-USD'])
+// Crypto pattern: ends in -USD — full list matching ExploreIntelligence asset list
+const CRYPTO_TICKERS = new Set([
+  'BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD',
+  'ADA-USD', 'DOGE-USD', 'MATIC-USD', 'AVAX-USD', 'DOT-USD',
+  'LINK-USD', 'UNI-USD', 'ATOM-USD', 'LTC-USD', 'NEAR-USD',
+  'APT-USD', 'ARB-USD',
+])
 
 // Commodities — futures symbols (end in =F) or mapped from pulse card labels
 const COMMODITY_MAP: Record<string, { cotCode: string; label: string; unit: string }> = {
@@ -20,6 +26,7 @@ const COMMODITY_MAP: Record<string, { cotCode: string; label: string; unit: stri
   'SI=F':  { cotCode: 'CFTC_084691', label: 'Silver (XAG)',   unit: '5,000 troy oz' },
   'CL=F':  { cotCode: 'CFTC_067411', label: 'WTI Crude Oil',  unit: '1,000 barrels' },
   'NG=F':  { cotCode: 'CFTC_023651', label: 'Natural Gas',    unit: '10,000 MMBtu' },
+  'HG=F':  { cotCode: 'CFTC_085692', label: 'Copper',         unit: '25,000 lbs' },
 }
 
 // True indices / FX / ETF — no insider trading exists
@@ -31,11 +38,15 @@ const NON_EQUITY_PATTERNS = [
   /^(SPY|QQQ|GLD|SLV|USO|GDX|GDXJ|VXX|UVXY|TLT|IEF|HYG|LQD)$/i, // Popular ETFs
 ]
 
-type AssetKind = 'us_equity' | 'commodity' | 'crypto' | 'index_etf'
+// Indonesian stocks — .JK suffix
+const INDO_STOCK_PATTERN = /\.JK$/i
+
+type AssetKind = 'us_equity' | 'commodity' | 'crypto' | 'index_etf' | 'indo_stock'
 
 function detectAssetKind(ticker: string): AssetKind {
   if (COMMODITY_MAP[ticker]) return 'commodity'
   if (CRYPTO_TICKERS.has(ticker)) return 'crypto'
+  if (INDO_STOCK_PATTERN.test(ticker)) return 'indo_stock'
   if (NON_EQUITY_PATTERNS.some(p => p.test(ticker))) return 'index_etf'
   // Heuristic: US equity = 1-5 uppercase alpha letters only
   if (/^[A-Z]{1,5}$/.test(ticker)) return 'us_equity'
@@ -170,8 +181,19 @@ function RadarHeader({ icon, title, sub, live }: { icon: React.ReactNode; title:
           {icon}
           {live && <span className="absolute inset-0 rounded-full border border-teal-500/40 animate-ping" />}
         </div>
-        <div>
-          <h3 className="text-sm font-medium text-white">{title}</h3>
+        <div className="relative">
+          <h3 className="text-sm font-medium text-white flex items-center gap-2">
+            {title}
+            <FirstRunTooltip 
+              id="insider_radar"
+              titleId="Lacak Manuver Paus"
+              titleEn="Track Whale Movements"
+              descId="Pantau aktivitas transaksi oleh direksi perusahaan atau Big Money (Whale). Pembelian dalam jumlah besar seringkali menjadi sinyal kuat."
+              descEn="Monitor transactions by company directors or Big Money (Whales). Large purchases are often strong signals."
+              placement="bottom"
+              className="left-0 translate-x-0"
+            />
+          </h3>
           <p className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">{sub}</p>
         </div>
       </div>
@@ -256,7 +278,7 @@ function InsiderTradingPanel({ ticker }: { ticker: string }) {
                 </p>
                 <p className="text-[11px] text-slate-600 leading-snug truncate">{tx.transaction_type}</p>
               </div>
-              <div className="text-right shrink-0 space-y-0.5">
+              <div className="text-left sm:text-right shrink-0 space-y-0.5 mt-2 sm:mt-0 pt-2 sm:pt-0 border-t border-white/[0.04] sm:border-0">
                 <p className="text-xs font-mono text-slate-200 font-medium">{fmtN(tx.securities_transacted)} shares</p>
                 {tx.transaction_price != null && tx.transaction_price > 0 && (
                   <p className="text-[11px] text-slate-500 font-mono">@ {fmtPrice(tx.transaction_price)}</p>
@@ -511,10 +533,40 @@ function CryptoWhalePanel({ ticker }: { ticker: string }) {
 
   return (
     <div className="space-y-4">
+      {/* Header row */}
       <div className="flex items-center justify-between text-[10px] font-mono">
-        <span className="text-slate-600 uppercase tracking-widest">Live Spot Trades (Dynamic Whale Thresholds)</span>
-        <span className="text-emerald-500 animate-pulse">● Terhubung ke Binance</span>
+        <span className="text-slate-600 uppercase tracking-widest">Live Spot Trades · Dynamic Whale Thresholds</span>
+        <span className="text-emerald-500 animate-pulse">● Binance Live</span>
       </div>
+
+      {/* Volume Delta Summary */}
+      {data.length > 0 && (() => {
+        const buyVol = data.slice(0, 15).filter(t => !t.m).reduce((s, t) => s + parseFloat(t.p) * parseFloat(t.q), 0)
+        const sellVol = data.slice(0, 15).filter(t => t.m).reduce((s, t) => s + parseFloat(t.p) * parseFloat(t.q), 0)
+        const total = buyVol + sellVol || 1
+        const buyPct = Math.round((buyVol / total) * 100)
+        const sellPct = 100 - buyPct
+        const delta = buyVol - sellVol
+        const isDeltaPos = delta >= 0
+        return (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">⚡ Volume Delta (Batch Terbaru)</p>
+              <span className={`text-xs font-mono font-bold ${isDeltaPos ? 'text-emerald-400' : 'text-red-400'}`}>
+                {isDeltaPos ? '+' : ''}{formatWhaleUsd(Math.abs(delta))} {isDeltaPos ? 'NET BUY' : 'NET SELL'}
+              </span>
+            </div>
+            <div className="flex gap-0.5 h-3 rounded-full overflow-hidden">
+              <div className="bg-emerald-500/70 rounded-l-full transition-all" style={{ width: `${buyPct}%` }} />
+              <div className="bg-red-500/60 rounded-r-full transition-all" style={{ width: `${sellPct}%` }} />
+            </div>
+            <div className="flex justify-between text-[10px] font-mono text-slate-500">
+              <span className="text-emerald-400">▲ Buy {formatWhaleUsd(buyVol)} ({buyPct}%)</span>
+              <span className="text-red-400">▼ Sell {formatWhaleUsd(sellVol)} ({sellPct}%)</span>
+            </div>
+          </div>
+        )
+      })()}
 
       <div className="divide-y divide-white/[0.04] rounded-xl overflow-hidden border border-white/[0.05]">
         {data.slice(0, 15).map((tx, i) => {
@@ -573,13 +625,64 @@ function CryptoWhalePanel({ ticker }: { ticker: string }) {
       </div>
       
       <p className="text-[10px] text-slate-700 font-mono uppercase tracking-wider">
-        Data Real-Time Binance AggTrades — Filter: Dynamic Whale Thresholds (e.g. $5M+ BTC)
+        Data Real-Time Binance AggTrades — Filter: Dynamic Whale Thresholds (e.g. $500K+ BTC, $200K+ ETH)
       </p>
     </div>
   )
 }
 
 // ── Not Available Panel ───────────────────────────────────────────────────────
+
+// ── Indo Stock Panel ──────────────────────────────────────────────────────────
+
+function IndoStockPanel({ ticker }: { ticker: string }) {
+  const cleanName = ticker.replace('.JK', '')
+  const tvSymbol = `IDX:${cleanName}`
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] px-5 py-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🇮🇩</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-300">Saham IDX: {cleanName}</p>
+            <p className="text-[11px] text-slate-500">Data Insider Trading saham BEI belum tersedia secara publik gratis.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4 space-y-3">
+        <p className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">📊 Informasi yang tersedia untuk IHSG</p>
+        <ul className="space-y-2 text-xs text-slate-400">
+          <li className="flex items-start gap-2">
+            <span className="text-teal-400 mt-0.5">✓</span>
+            <span><strong className="text-slate-200">Chart TradingView</strong> — Harga & volume historis tersedia di panel kiri atas</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-teal-400 mt-0.5">✓</span>
+            <span><strong className="text-slate-200">Komando Pagi AI</strong> — Analisis makro IHSG setiap pagi hari dengan konteks global</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-teal-400 mt-0.5">✓</span>
+            <span><strong className="text-slate-200">AI Chat Copilot</strong> — Tanya langsung tentang fundamental, valuasi, atau sentimen {cleanName}</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-slate-600 mt-0.5">○</span>
+            <span className="text-slate-600">Insider trading BEI — Memerlukan data OJK/IDX premium (roadmap)</span>
+          </li>
+        </ul>
+      </div>
+
+      <div className="rounded-xl border border-teal-500/10 bg-teal-500/[0.03] p-4">
+        <p className="text-[10px] font-mono text-teal-600 uppercase tracking-widest mb-2">🎯 TradingView Live Chart</p>
+        <p className="text-xs text-slate-400">
+          Simbol TradingView untuk saham ini: <span className="text-teal-300 font-mono font-medium">{tvSymbol}</span>
+        </p>
+        <p className="text-[11px] text-slate-600 mt-1">Gunakan chart interaktif di atas untuk analisis teknikal secara langsung.</p>
+      </div>
+    </div>
+  )
+}
 
 function NotAvailablePanel({ ticker, kind, onSelectExample }: { ticker: string; kind: AssetKind; onSelectExample?: (s: string) => void }) {
   const clean = ticker.replace('=F', '').replace('-USD', '').replace('-', '/').replace('.NYB', '')
@@ -589,6 +692,7 @@ function NotAvailablePanel({ ticker, kind, onSelectExample }: { ticker: string; 
     index_etf: 'Indeks dan ETF tidak memiliki struktur kepemilikan insider. Gunakan ticker saham individual yang ada di dalamnya.',
     commodity: 'Komoditas ini belum memiliki data COT yang dipetakan. Tersedia untuk: Emas (GC=F), Perak (SI=F), Minyak WTI (CL=F).',
     us_equity: 'Aset ini tidak terdeteksi sebagai saham US yang dapat dicari data insidernya.',
+    indo_stock: 'Data orderbook atau insider trading untuk IHSG belum tersedia secara publik.',
   }
 
   return (
@@ -632,7 +736,8 @@ export default function MarketRadarSection({ ticker, i18n: _i18n, onSelectTicker
   const isCommodity = kind === 'commodity'
   const isUsEquity  = kind === 'us_equity'
   const isCrypto    = kind === 'crypto'
-  const showUnavailable = !isCommodity && !isUsEquity && !isCrypto
+  const isIndoStock = kind === 'indo_stock'
+  const showUnavailable = !isCommodity && !isUsEquity && !isCrypto && !isIndoStock
 
   const svgIcon = isCommodity ? (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-teal-400">
@@ -666,6 +771,8 @@ export default function MarketRadarSection({ ticker, i18n: _i18n, onSelectTicker
           ? <CotRadarPanel ticker={ticker} />
           : isCrypto
           ? <CryptoWhalePanel ticker={ticker} />
+          : isIndoStock
+          ? <IndoStockPanel ticker={ticker} />
           : <InsiderTradingPanel ticker={ticker} />
       }
     </div>

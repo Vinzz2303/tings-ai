@@ -22,6 +22,7 @@ type Provider = 'gemini' | 'groq'
 export type CopilotMessage = {
   role: 'user' | 'assistant'
   content: string
+  image?: string
 }
 
 export type CopilotResponse = {
@@ -36,6 +37,7 @@ export type CopilotResponse = {
 
 type RunCopilotInput = {
   message: string
+  image?: string
   lang: 'id' | 'en'
   mode?: 'copilot' | 'chat'
   market: MarketCondition
@@ -81,6 +83,7 @@ CARA BERPIKIR:
 3. Bagaimana seharusnya melihatnya (DIRECTION)
 
 ATURAN KERAS:
+- BIAS DETECTOR (MUTLAK): Jika user menunjukkan conviction/keyakinan yang kuat (misal: "pasti naik", "saatnya buy", "all in"), kamu WAJIB bertindak sebagai DEVIL'S ADVOCATE. Berikan argumen bearish/berlawanan untuk mendinginkan emosinya dan mencegah Confirmation Bias atau FOMO.
 - Jawab pertanyaan user dulu, baru hubungkan ke portofolio.
 - DILARANG menjelaskan definisi umum seperti Google
 - DILARANG menjawab terlalu generik
@@ -96,7 +99,7 @@ Gunakan variasi natural. Jangan mengulang pembuka yang sama antar jawaban.
 
 OUTPUT & STRUCTURE:
 Kamu HARUS menstrukturkan jawaban ke dalam persis 4 bagian ini secara berurutan, mengalir natural dalam 1-2 paragraf, TANPA menggunakan label (seperti "Acknowledge:", "Context:"), TANPA bullet points, dan TANPA JSON:
-1. ACKNOWLEDGE: Validasi pertanyaan/niat user.
+1. ACKNOWLEDGE: Validasi pertanyaan/niat user. (Jika terdeteksi bias, langsung potong dengan devil's advocate).
 2. CONTEXT: Sebutkan kondisi market/portofolio saat ini.
 3. INSIGHT: Berikan realita dan trade-off (jelaskan sebab -> akibat).
 4. REFLECTION: Akhiri dengan arah pemikiran (apa yang perlu dipantau/dipertimbangkan).
@@ -110,39 +113,40 @@ Gunakan:
 const SYSTEM_PROMPT_EN = `You are a thinking copilot for investors, not a standard answer bot.
 
 Your task:
-- help the user understand implications
-- not explain general definitions
+- help users understand implications
+- do not explain general definitions
 
-HOW TO THINK:
+THINKING FRAMEWORK:
 1. What is visible on the surface (REALITY)
 2. What is often missed (TRADE-OFF)
 3. How to look at it (DIRECTION)
 
-STRICT RULES:
+HARD RULES:
+- BIAS DETECTOR (ABSOLUTE): If the user shows strong conviction (e.g., "it will definitely go up", "time to buy", "all in"), you MUST act as a DEVIL'S ADVOCATE. Provide bearish/contrarian arguments to cool down their emotions and prevent Confirmation Bias or FOMO.
 - Answer the user's question first, then connect it to the portfolio.
-- FORBIDDEN to explain general definitions like Google
-- FORBIDDEN to give overly generic answers
-- FORBIDDEN to use JSON, bullets, or technical formatting
-- NO-SIGNAL POLICY (CRITICAL): FORBIDDEN to give explicit buy, sell, hold, entry, or exit instructions, or promise profits. Guide HOW to think, DO NOT tell them WHAT to do.
-- MUST mention the user's portfolio concentration and dominant asset when context exists
-- Use the stance risk_pressure, neutral, or supportive as a reasoning lens, not a transaction signal
-- Avoid defensive language like "I don't have live context", "I am not sure", or "data is unavailable"
+- DO NOT explain general definitions like Google
+- DO NOT answer too generically
+- DO NOT use JSON, bullets, or technical formats
+- NO-SIGNAL POLICY (ABSOLUTE): DO NOT give instructions/advice to buy, sell, hold, entry, exit, or promise profits. Help with HOW to think, not WHAT to do.
+- MUST mention user portfolio concentration and dominant assets when context is available
+- Use risk_pressure, neutral, or supportive stances as a reasoning lens, not a transaction signal
+- AVOID defensive language like "no live context", "not sure", or "data unavailable"
 - In copilot mode, include a natural trade-off sentence
 
-TONE:
-Use varied natural phrasing. Do not repeat the same opener across responses.
+LANGUAGE STYLE:
+Use natural variation. Do not repeat the same opening between answers.
 
 OUTPUT & STRUCTURE:
-You MUST structure your response into exactly these 4 parts in order, blended naturally into 1-2 paragraphs, WITHOUT using labels (like "Acknowledge:", "Context:"), WITHOUT bullet points, and WITHOUT JSON:
-1. ACKNOWLEDGE: Validate the user's question or intent.
-2. CONTEXT: Situate the current market/portfolio condition.
-3. INSIGHT: Provide the reality and trade-off (explain cause -> effect).
-4. REFLECTION: End with a thinking direction (what to monitor or consider).
+You MUST structure the answer into exactly these 4 parts sequentially, flowing naturally in 1-2 paragraphs, WITHOUT using labels (like "Acknowledge:", "Context:"), WITHOUT bullet points, and WITHOUT JSON:
+1. ACKNOWLEDGE: Validate user question/intent. (If bias is detected, cut in immediately with a devil's advocate stance).
+2. CONTEXT: State current market/portfolio condition.
+3. INSIGHT: Provide reality and trade-off (explain cause -> effect).
+4. REFLECTION: End with a direction of thought (what to monitor/consider).
 
 CONTEXT:
 Use:
 - market conditions
-- user's portfolio structure (if any)
+- user portfolio structure (if any)
 - trust level (implicitly, not as a label)`
 
 function timeoutSignal(timeoutMs: number) {
@@ -154,7 +158,8 @@ function timeoutSignal(timeoutMs: number) {
 
 // normalizeCopilotOutput has been moved to enforcePlainText in outputGuard.ts
 
-function detectIntent(q: string): CopilotIntent {
+function detectIntent(q: string, hasImage?: boolean): CopilotIntent {
+  if (hasImage) return 'portfolio'
   const text = q.toLowerCase().trim()
 
   if (text.match(/siapa|who are you|apa itu/i)) return 'identity'
@@ -437,7 +442,7 @@ function buildFromInsight(
 }
 
 function localFallback(input: RunCopilotInput): CopilotResponse {
-  const intent = detectIntent(input.message)
+  const intent = detectIntent(input.message, !!input.image)
   const newsContext = readStoredNewsContext()
   const journalEntries = readDecisionJournal()
   if (asksAboutDecisionJournal(input.message)) {
@@ -544,6 +549,7 @@ function buildPayloadMessages(input: RunCopilotInput): AiMessage[] {
   const history = (input.messages || []).slice(-8).map((message) => ({
     role: message.role,
     content: message.content,
+    image: message.image,
   }))
 
   return [
@@ -559,6 +565,7 @@ function buildPayloadMessages(input: RunCopilotInput): AiMessage[] {
     {
       role: 'user',
       content: input.message,
+      image: input.image,
     },
   ]
 }
@@ -569,7 +576,7 @@ async function callProviderV2(
   timeoutMs: number
 ): Promise<CopilotResponse> {
   const { controller, timeoutId } = timeoutSignal(timeoutMs)
-  const copilotIntent = detectIntent(input.message)
+  const copilotIntent = detectIntent(input.message, !!input.image)
 
   if (copilotIntent !== 'portfolio') {
     try {
@@ -586,8 +593,8 @@ async function callProviderV2(
                 ? 'Kamu adalah Ting AI. Jawab natural, singkat, dan ramah. Jangan menyisipkan konteks portofolio kecuali user bertanya soal market, aset, risiko, atau portofolio.'
                 : 'You are Ting AI. Reply naturally, briefly, and warmly. Do not inject portfolio context unless the user asks about markets, assets, risk, or portfolio.'
             },
-            ...(input.messages || []).slice(-6).map((m) => ({ role: m.role, content: m.content })),
-            { role: 'user', content: input.message },
+            ...(input.messages || []).slice(-6).map((m) => ({ role: m.role, content: m.content, image: m.image })),
+            { role: 'user', content: input.message, image: input.image },
           ],
           meta: {
             copilot: true,
@@ -640,8 +647,8 @@ async function callProviderV2(
 
   const payloadMessages = [
     { role: 'system', content: input.lang === 'id' ? SYSTEM_PROMPT_ID : SYSTEM_PROMPT_EN },
-    ...(input.messages || []).map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: promptText },
+    ...(input.messages || []).map((m) => ({ role: m.role, content: m.content, image: m.image })),
+    { role: 'user', content: promptText, image: input.image },
   ]
 
   try {

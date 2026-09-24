@@ -50,7 +50,10 @@ const FRONTEND_TO_YAHOO_MAP: Record<string, string> = {
   'BTC': 'BTC-USD',
   'XAUUSD': 'GC=F',
   'SP500': '^GSPC',
-  'USDIDR': 'USDIDR=X'
+  'USDIDR': 'USDIDR=X',
+  'EURUSD': 'EURUSD=X',
+  'GBPUSD': 'GBPUSD=X',
+  'USDJPY': 'USDJPY=X'
 }
 
 const YAHOO_TO_FRONTEND_MAP: Record<string, string> = Object.entries(FRONTEND_TO_YAHOO_MAP).reduce((acc, [key, val]) => {
@@ -126,7 +129,7 @@ const findLatestClose = (timestamps: number[], closes: Array<number | null> = []
 
 const fetchYahooChart = async (symbol: string, interval: '1m' | '1d') => {
   const range = interval === '1m' ? '1d' : '5d'
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`
   const response = await axios.get<YahooChartResponse>(url, {
     timeout: 12000,
     headers: {

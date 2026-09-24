@@ -12,6 +12,7 @@ import {
   type DecisionJournalEntry,
   type DecisionJournalType,
 } from '../utils/decisionJournal'
+import FirstRunTooltip from './FirstRunTooltip'
 
 type Props = {
   snapshot: NormalizedPortfolioSnapshot
@@ -219,10 +220,19 @@ export default function DecisionJournal({
 
   return (
     <section className={compact ? 'space-y-3' : 'space-y-5'}>
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 relative">
+        <div className="flex flex-col gap-1.5 relative">
           <span className="label-uppercase text-[10px]">{t.title}</span>
           <p className="text-sm text-slate-500 leading-relaxed max-w-2xl">{t.subtitle}</p>
+          <FirstRunTooltip 
+            id="decision_journal"
+            titleId="Catat Sebelum Trading"
+            titleEn="Log Before You Trade"
+            descId="Ting AI akan memperingatkan jika keputusanmu melanggar batas risiko portofolio. Biasakan mencatat alasan sebelum mengeksekusi order di broker."
+            descEn="Ting AI will warn you if your decision breaches your portfolio risk budget. Make a habit of logging your reasons before executing orders on your broker."
+            placement="bottom"
+            className="left-0 translate-x-0"
+          />
         </div>
         <button
           type="button"
@@ -231,7 +241,7 @@ export default function DecisionJournal({
             setError('')
           }}
           disabled={isFreeLimitReached && !open}
-          className={`self-start rounded-xl border px-4 py-2 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`self-start rounded-sm border px-4 py-2 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
             open
               ? 'border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/[0.07]'
               : 'border-teal-500/30 bg-teal-500/10 text-teal-300 hover:bg-teal-500/20 hover:border-teal-500/40 shadow-[0_0_16px_rgba(20,184,166,0.1)]'
@@ -242,7 +252,7 @@ export default function DecisionJournal({
       </div>
 
       {open && (
-        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 md:p-5 space-y-4">
+        <div className="rounded-sm border border-white/[0.07] bg-[#050505] border border-white/10 p-4 md:p-5 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="space-y-1.5">
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">{t.asset}</span>
@@ -250,7 +260,7 @@ export default function DecisionJournal({
                 <select
                   value={relatedAsset}
                   onChange={(event) => setRelatedAsset(event.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
+                  className="w-full rounded-sm border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
                 >
                   <option value="">{t.noAsset}</option>
                   {holdings.map((holding) => (
@@ -264,7 +274,7 @@ export default function DecisionJournal({
                   value={manualAsset}
                   onChange={(event) => setManualAsset(event.target.value.slice(0, 40))}
                   placeholder={t.assetPlaceholder}
-                  className="w-full rounded-xl border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
+                  className="w-full rounded-sm border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
                 />
               )}
               {selectedAsset && (
@@ -279,7 +289,7 @@ export default function DecisionJournal({
               <select
                 value={decisionType}
                 onChange={(event) => setDecisionType(event.target.value as DecisionJournalType)}
-                className="w-full rounded-xl border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
+                className="w-full rounded-sm border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
               >
                 {decisionTypes.map((type) => (
                   <option key={type} value={type}>{decisionTypeLabel(type, language)}</option>
@@ -289,13 +299,13 @@ export default function DecisionJournal({
           </div>
 
           {selectedRiskBreach && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-200 leading-relaxed">
+            <div className="rounded-sm border border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-200 leading-relaxed">
               {t.riskWarning}
             </div>
           )}
 
           {selectedWatchItem && (
-            <div className="rounded-xl border border-teal-500/20 bg-teal-500/[0.05] p-3 text-xs text-teal-100 leading-relaxed">
+            <div className="rounded-sm border border-teal-500/20 bg-teal-500/[0.05] p-3 text-xs text-teal-100 leading-relaxed">
               <span className="font-semibold">{t.watchWarning}</span> {selectedWatchItem.reason}
             </div>
           )}
@@ -307,7 +317,7 @@ export default function DecisionJournal({
               onChange={(event) => setReason(event.target.value.slice(0, 300))}
               placeholder={t.reasonPlaceholder}
               rows={3}
-              className="w-full resize-none rounded-xl border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
+              className="w-full resize-none rounded-sm border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
             />
             <span className="block text-right text-[10px] font-mono text-slate-700">{reason.length}/300</span>
           </label>
@@ -319,7 +329,7 @@ export default function DecisionJournal({
               onChange={(event) => setRiskAwareNote(event.target.value.slice(0, 300))}
               placeholder={t.riskPlaceholder}
               rows={2}
-              className="w-full resize-none rounded-xl border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
+              className="w-full resize-none rounded-sm border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
             />
           </label>
 
@@ -329,7 +339,7 @@ export default function DecisionJournal({
               <select
                 value={reviewOption}
                 onChange={(event) => setReviewOption(event.target.value as typeof reviewOptions[number])}
-                className="w-full rounded-xl border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
+                className="w-full rounded-sm border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
               >
                 {reviewOptions.map((option) => (
                   <option key={option} value={option}>{t.options[option]}</option>
@@ -343,7 +353,7 @@ export default function DecisionJournal({
                   type="date"
                   value={customDate}
                   onChange={(event) => setCustomDate(event.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
+                  className="w-full rounded-sm border border-white/10 bg-[#080a0f] px-3 py-2.5 text-sm text-slate-200 outline-none"
                 />
               </label>
             )}
@@ -354,7 +364,7 @@ export default function DecisionJournal({
           <button
             type="button"
             onClick={handleSave}
-            className="rounded-xl bg-teal-400 px-5 py-2.5 text-xs font-bold text-black hover:bg-teal-300 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_16px_rgba(20,184,166,0.2)]"
+            className="rounded-sm bg-teal-400 px-5 py-2.5 text-xs font-bold text-black hover:bg-teal-300 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_16px_rgba(20,184,166,0.2)]"
           >
             {t.save}
           </button>
@@ -362,9 +372,9 @@ export default function DecisionJournal({
       )}
 
       {!visibleEntries.length ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.015] p-6 text-center">
+        <div className="rounded-sm border border-dashed border-white/10 bg-white/[0.015] p-6 text-center">
           {/* Icon */}
-          <div className="mx-auto mb-3 w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center">
+          <div className="mx-auto mb-3 w-10 h-10 rounded-sm bg-teal-500/10 border border-teal-500/20 flex items-center justify-center">
             <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
             </svg>
@@ -379,7 +389,7 @@ export default function DecisionJournal({
             ).map((prompt) => (
               <span
                 key={prompt}
-                className="text-[10px] px-2.5 py-1 rounded-lg border border-white/[0.06] bg-white/[0.02] text-slate-500 font-mono"
+                className="text-[10px] px-2.5 py-1 rounded-lg border border-white/[0.06] bg-[#050505] border border-white/10 text-slate-500 font-mono"
               >
                 {prompt}
               </span>
@@ -389,7 +399,7 @@ export default function DecisionJournal({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {visibleEntries.map((entry) => (
-            <article key={entry.id} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3 transition-all duration-300 hover:border-white/[0.12] hover:shadow-lg hover:-translate-y-0.5">
+            <article key={entry.id} className="rounded-sm border border-white/[0.06] bg-[#050505] border border-white/10 p-4 space-y-3 transition-all duration-300 hover:border-white/[0.12] hover:shadow-lg hover:-translate-y-0.5">
               <div className="flex items-start justify-between gap-3">
                 <span className={`rounded-md border px-2 py-1 text-[10px] font-mono uppercase tracking-wider ${badgeClass(entry.decisionType)}`}>
                   {decisionTypeLabel(entry.decisionType, language)}
@@ -398,7 +408,7 @@ export default function DecisionJournal({
               </div>
               <p className="text-sm text-slate-200 leading-relaxed">{entry.reason}</p>
               {entry.riskAwareNote && (
-                <p className="rounded-xl border border-white/[0.05] bg-black/10 p-3 text-xs text-slate-400 leading-relaxed">
+                <p className="rounded-sm border border-white/[0.05] bg-black/10 p-3 text-xs text-slate-400 leading-relaxed">
                   {entry.riskAwareNote}
                 </p>
               )}

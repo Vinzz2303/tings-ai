@@ -161,7 +161,7 @@ export default function Navbar() {
     return (
       <>
         {/* ── Floating Pill Navbar (desktop ≥768px) ─────────────── */}
-        <header className="hidden xl:block">
+        <header className="hidden md:block">
           <nav className="navbar-pill">
             {/* Brand mark */}
             <Link to="/" onClick={closeAll} className="navbar-pill-brand">
@@ -188,6 +188,17 @@ export default function Navbar() {
             <Link to={isHome ? '#contact' : '/#contact'} onClick={closeAll} className="navbar-pill-link">
               <MailIcon /> {navText.contact}
             </Link>
+            <Link
+              to="/cv"
+              onClick={closeAll}
+              className="navbar-pill-link"
+              style={{ color: 'var(--accent)', fontWeight: 600 }}
+            >
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              CV
+            </Link>
 
             <div className="navbar-pill-divider" />
 
@@ -205,7 +216,8 @@ export default function Navbar() {
         </header>
 
         {/* ── Mobile top-bar (<768px) ──────────────────────────── */}
-        <header className="navbar w-full xl:hidden">
+        <header className="navbar w-full md:hidden">
+
           <div className="container-saas nav-inner">
             <div className="brand-wrap">
               <Link className="brand-link" to="/" onClick={closeAll}>
@@ -265,7 +277,8 @@ export default function Navbar() {
                 <Link to="/komando-pagi" onClick={closeAll}>{isEnglish ? 'Morning Command' : 'Komando Pagi'}</Link>
                 <Link to="/portfolio" onClick={closeAll}>{isEnglish ? 'Portfolio' : 'Portofolio'}</Link>
                 <Link to="/explore-intelligence" onClick={closeAll}>Explore</Link>
-                <Link to="/decision-journal" onClick={closeAll}>{isEnglish ? 'Journal' : 'Jurnal'}</Link>
+                <Link to="/decision-journal" onClick={closeAll}>{isEnglish ? 'Decision Journal' : 'Jurnal Keputusan'}</Link>
+                <Link to="/trade-journal" onClick={closeAll}>{isEnglish ? 'Trade Journal' : 'Jurnal Trading'}</Link>
                 <Link to="/ting-ai" onClick={closeAll}>Copilot</Link>
                 <Link to="/personal-space" onClick={closeAll}>{isEnglish ? 'Personal Space' : 'Ruang Personal'}</Link>
               </>
@@ -368,7 +381,10 @@ export default function Navbar() {
                 Explore <ArrowIcon />
               </Link>
               <Link to="/decision-journal" onClick={closeAll} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '1.6rem', fontWeight: 500, color: 'rgba(255,255,255,0.88)', padding: '0.75rem 0', borderBottom: '1px solid rgba(255,255,255,0.06)', textDecoration: 'none' }}>
-                {isEnglish ? 'Journal' : 'Jurnal'} <ArrowIcon />
+                {isEnglish ? 'Decision Journal' : 'Jurnal Keputusan'} <ArrowIcon />
+              </Link>
+              <Link to="/trade-journal" onClick={closeAll} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '1.6rem', fontWeight: 500, color: 'rgba(255,255,255,0.88)', padding: '0.75rem 0', borderBottom: '1px solid rgba(255,255,255,0.06)', textDecoration: 'none' }}>
+                {isEnglish ? 'Trade Journal' : 'Jurnal Trading'} <ArrowIcon />
               </Link>
               <Link to="/ting-ai" onClick={closeAll} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '1.6rem', fontWeight: 500, color: 'rgba(255,255,255,0.88)', padding: '0.75rem 0', borderBottom: '1px solid rgba(255,255,255,0.06)', textDecoration: 'none' }}>
                 Copilot <ArrowIcon />

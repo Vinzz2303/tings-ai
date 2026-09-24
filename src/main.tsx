@@ -7,6 +7,8 @@ import './styles.css'
 import './styles-portfolio-modern-patch.css'
 import './premium-dashboard.css'
 
+import { HelmetProvider } from 'react-helmet-async'
+
 if ('scrollRestoration' in window.history) {
   window.history.scrollRestoration = 'manual'
 }
@@ -19,11 +21,13 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <React.StrictMode>
-    <BrowserRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
-      <ScrollToTop />
-      <App />
-    </BrowserRouter>
+    <HelmetProvider>
+      <BrowserRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <ScrollToTop />
+        <App />
+      </BrowserRouter>
+    </HelmetProvider>
   </React.StrictMode>
 )

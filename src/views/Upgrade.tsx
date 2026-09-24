@@ -160,6 +160,9 @@ export default function Upgrade() {
       const formData = new FormData()
       formData.append('full_name', next.fullName)
       formData.append('email', next.email)
+      if (next.notes) {
+        formData.append('notes', next.notes)
+      }
       
       if (proofFile) {
         formData.append('file', proofFile)

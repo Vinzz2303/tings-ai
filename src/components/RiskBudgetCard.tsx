@@ -129,7 +129,7 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
       </div>
 
       {!snapshot.hasPortfolio ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.015] p-5">
+        <div className="rounded-sm border border-dashed border-white/10 bg-white/[0.015] p-5">
           <p className="text-sm font-medium text-slate-300">{t.emptyTitle}</p>
           <p className="mt-1.5 text-xs text-slate-500 leading-relaxed max-w-md">{t.emptyBody}</p>
           {onAddAsset ? (
@@ -143,7 +143,7 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
           )}
         </div>
       ) : (
-        <div className={`rounded-2xl border p-4 md:p-5 space-y-4 ${toneClass[evaluation.status]}`}>
+        <div className={`rounded-sm border p-4 md:p-5 space-y-4 ${toneClass[evaluation.status]}`}>
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold text-white">{title}</h3>
@@ -156,7 +156,7 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
                 setOpen((value) => !value)
                 setError('')
               }}
-              className="self-start rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/[0.07]"
+              className="self-start rounded-sm border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/[0.07]"
             >
               {t.set}
             </button>
@@ -165,7 +165,7 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
           {visibleBreaches.length ? (
             <div className="space-y-2.5">
               {visibleBreaches.map((breach) => (
-                <div key={`${breach.type}-${breach.label}`} className="rounded-xl border border-white/[0.06] bg-black/10 p-3">
+                <div key={`${breach.type}-${breach.label}`} className="rounded-sm border border-white/[0.06] bg-black/10 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium text-slate-100">{breach.label}</p>
                     <span className="text-[10px] font-mono text-slate-400">
@@ -177,7 +177,7 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-white/[0.06] bg-black/10 p-3">
+            <div className="rounded-sm border border-white/[0.06] bg-black/10 p-3">
               <p className="text-[10px] font-mono uppercase tracking-widest text-slate-600">{t.awareness}</p>
               <p className="mt-1 text-xs text-slate-400">{evaluation.watchItems[0]}</p>
             </div>
@@ -190,7 +190,7 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
           )}
 
           {open && (
-            <div className="rounded-2xl border border-white/[0.08] bg-[#080a0f]/80 p-4 space-y-4">
+            <div className="rounded-sm border border-white/[0.08] bg-[#080a0f]/80 p-4 space-y-4">
               {!isPro ? (
                 <p className="text-xs text-slate-400 leading-relaxed">{t.freeCta}</p>
               ) : (
@@ -201,7 +201,7 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
                         <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
                           {fieldLabels[field][language]}
                         </span>
-                        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className="flex items-center gap-2 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-2">
                           <input
                             type="number"
                             min={0}
@@ -220,13 +220,13 @@ export default function RiskBudgetCard({ snapshot, language, isPro, compact = fa
                   </div>
                   {error && <p className="text-xs text-red-300">{error}</p>}
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={handleSave} className="rounded-xl bg-teal-400 px-4 py-2 text-xs font-bold text-black">
+                    <button type="button" onClick={handleSave} className="rounded-sm bg-teal-400 px-4 py-2 text-xs font-bold text-black">
                       {t.save}
                     </button>
-                    <button type="button" onClick={resetToDefaults} className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-slate-300">
+                    <button type="button" onClick={resetToDefaults} className="rounded-sm border border-white/10 px-4 py-2 text-xs font-semibold text-slate-300">
                       Default
                     </button>
-                    <button type="button" onClick={() => setOpen(false)} className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-slate-500">
+                    <button type="button" onClick={() => setOpen(false)} className="rounded-sm border border-white/10 px-4 py-2 text-xs font-semibold text-slate-500">
                       {t.cancel}
                     </button>
                   </div>

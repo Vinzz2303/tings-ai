@@ -7,8 +7,21 @@ type MetadataConfig = {
   robots?: string
 }
 
-const SITE_URL = 'https://faturachman.my.id'
-const DEFAULT_IMAGE = `${SITE_URL}/og-image.png`
+function getSiteUrl(): string {
+  if (typeof window === 'undefined') return 'https://tingsai.my.id'
+  const h = window.location.hostname
+  if (h.includes('faturachman')) return 'https://faturachman.my.id'
+  if (h.includes('app.tingsai')) return 'https://app.tingsai.my.id'
+  if (h.includes('tingsai')) return 'https://tingsai.my.id'
+  return 'https://tingsai.my.id'
+}
+
+function getDefaultImage(): string {
+  if (typeof window === 'undefined') return 'https://tingsai.my.id/ting-ai-og-image.png'
+  const h = window.location.hostname
+  if (h.includes('faturachman')) return 'https://faturachman.my.id/profile.png'
+  return 'https://tingsai.my.id/ting-ai-og-image.png'
+}
 
 const upsertMeta = (selector: string, attributes: Record<string, string>, content: string) => {
   let element = document.head.querySelector<HTMLMetaElement>(selector)
@@ -36,7 +49,9 @@ const upsertLink = (selector: string, rel: string, href: string) => {
 
 export const useDocumentMetadata = ({ title, description, path, robots }: MetadataConfig) => {
   useEffect(() => {
-    const url = `${SITE_URL}${path}`
+    const siteUrl = getSiteUrl()
+    const defaultImage = getDefaultImage()
+    const url = `${siteUrl}${path}`
     const robotsValue = robots || 'index, follow'
 
     document.title = title
@@ -45,10 +60,10 @@ export const useDocumentMetadata = ({ title, description, path, robots }: Metada
     upsertMeta('meta[property="og:title"]', { property: 'og:title' }, title)
     upsertMeta('meta[property="og:description"]', { property: 'og:description' }, description)
     upsertMeta('meta[property="og:url"]', { property: 'og:url' }, url)
-    upsertMeta('meta[property="og:image"]', { property: 'og:image' }, DEFAULT_IMAGE)
+    upsertMeta('meta[property="og:image"]', { property: 'og:image' }, defaultImage)
     upsertMeta('meta[name="twitter:title"]', { name: 'twitter:title' }, title)
     upsertMeta('meta[name="twitter:description"]', { name: 'twitter:description' }, description)
-    upsertMeta('meta[name="twitter:image"]', { name: 'twitter:image' }, DEFAULT_IMAGE)
+    upsertMeta('meta[name="twitter:image"]', { name: 'twitter:image' }, defaultImage)
 
     upsertMeta('meta[name="robots"]', { name: 'robots' }, robotsValue)
 

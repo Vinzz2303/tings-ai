@@ -8,7 +8,7 @@ export type TingRawInsight = {
   arahan: string
 }
 
-export type TingInsightProvider = 'gemini' | 'groq' | 'local'
+export type TingInsightProvider = 'gemini' | 'groq' | 'ollama' | 'local'
 
 export type TingProviderFailure = {
   provider: Exclude<TingInsightProvider, 'local'>
@@ -173,6 +173,57 @@ async function callGroq(raw: TingRawInsight) {
   return normalizeInsight(extractJsonObject(content))
 }
 
+/**
+ * K3: Ollama Local Fallback
+ * Calls local Ollama API (http://localhost:11434) as 3rd-tier fallback.
+ * Data context is PRE-INJECTED by the backend, so Ollama doesn't need internet.
+ */
+async function callOllama(raw: TingRawInsight) {
+  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434'
+  const ollamaModel = process.env.OLLAMA_MODEL || 'llama3:latest'
+
+  // Use /api/chat endpoint for better instruction-following with llama3
+  const messages = [
+    {
+      role: 'system',
+      content: systemInstruction + ' Balas HANYA dengan objek JSON valid, tidak ada teks penjelasan, tidak ada markdown.'
+    },
+    {
+      role: 'user',
+      content: [
+        'Raw insight dari core engine:',
+        JSON.stringify(normalizeInsight(raw)),
+        '',
+        'Rapi-kan tanpa menambah fitur, tanpa prediksi, tanpa rekomendasi beli/jual.',
+        'BALAS HANYA JSON VALID. Mulai langsung dengan karakter "{".'
+      ].join('\n')
+    }
+  ]
+
+  const response = await axios.post(
+    `${ollamaUrl}/api/chat`,
+    {
+      model: ollamaModel,
+      messages,
+      stream: false,
+      format: 'json',
+      options: {
+        temperature: 0.1,
+        num_predict: 512
+      }
+    },
+    {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: Number(process.env.OLLAMA_TIMEOUT_MS || 60000)
+    }
+  )
+
+  const content: string = response.data?.message?.content
+  if (!content) throw new Error('Ollama returned empty response')
+  console.log('[TING_AI] Ollama raw response:', content.slice(0, 300))
+  return normalizeInsight(extractJsonObject(content))
+}
+
 export async function refineInsightWithLLM(raw: TingRawInsight): Promise<TingRefinedInsight> {
   const startedAt = Date.now()
   const normalizedRaw = normalizeInsight(raw)
@@ -182,16 +233,19 @@ export async function refineInsightWithLLM(raw: TingRawInsight): Promise<TingRef
     run: (input: TingRawInsight) => Promise<TingRawInsight>
   }> = [
     { name: 'gemini', run: callGemini },
-    { name: 'groq', run: callGroq }
+    { name: 'groq', run: callGroq },
+    { name: 'ollama', run: callOllama }  // K3: Ollama local fallback
   ]
   const timeoutMs = Number(process.env.TING_AI_PROVIDER_TIMEOUT_MS || 7000)
+  const ollamaTimeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 30000)
   const maxAttempts = Math.max(1, Number(process.env.TING_AI_PROVIDER_RETRIES || 1) + 1)
 
   for (const provider of providers) {
+    const providerTimeout = provider.name === 'ollama' ? ollamaTimeoutMs : timeoutMs
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const providerStartedAt = Date.now()
       try {
-        const insight = await withTimeout(provider.run(normalizedRaw), timeoutMs, provider.name)
+        const insight = await withTimeout(provider.run(normalizedRaw), providerTimeout, provider.name)
         const durationMs = Date.now() - startedAt
         console.log(
           `[TING_AI_V19] provider=${provider.name} fallbackDepth=${failures.length} responseTimeMs=${durationMs} attempt=${attempt}`

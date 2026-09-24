@@ -218,21 +218,15 @@ export default function KomandoPagi({ userPlan }: { userPlan?: string }) {
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="relative rounded-3xl overflow-hidden border border-white/[0.07]"
-        style={{ background: p.bg }}
+        className="relative pb-10 border-b border-white/[0.05]"
       >
-        {/* Glow accent */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-24 rounded-full blur-3xl"
-          style={{ background: p.glow }}
-        />
+        {/* Subtle top indicator line matching the theme color */}
         <div
           className="absolute top-0 inset-x-0 h-[1.5px]"
-          style={{ background: `linear-gradient(90deg, transparent, ${p.accent}70, transparent)` }}
+          style={{ background: `linear-gradient(90deg, ${p.accent}50, transparent)` }}
         />
 
-        <div className="relative z-10 p-6 md:p-8 space-y-4">
+        <div className="relative z-10 pt-8 space-y-6">
           {/* Date + name */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -366,8 +360,8 @@ export default function KomandoPagi({ userPlan }: { userPlan?: string }) {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.06 + i * 0.06, ease: [0.16, 1, 0.3, 1] }}
-            className="rounded-xl border border-white/[0.06] px-4 py-3.5 space-y-1.5 transition-all duration-300 hover:border-white/[0.12] hover:shadow-lg hover:-translate-y-0.5"
-            style={{ background: 'rgba(255,255,255,0.02)', minHeight: '68px' }}
+            className="border-t border-white/[0.05] py-4 space-y-1.5 transition-all duration-300 hover:border-white/[0.12] hover:-translate-y-0.5"
+            style={{ minHeight: '68px' }}
           >
             <p className="text-[10px] font-mono text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
               <span style={{ opacity: 0.5, fontSize: '8px' }}>{card.icon}</span>

@@ -53,7 +53,7 @@ export default function PortfolioActionWatchlist({ items, language, isPro, compa
       </div>
 
       {!items.length ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.015] p-5">
+        <div className="rounded-sm border border-dashed border-white/10 bg-white/[0.015] p-5">
           <p className="text-sm font-medium text-slate-300">{t.emptyTitle}</p>
           <p className="mt-1.5 text-xs text-slate-500 leading-relaxed max-w-md">{t.emptyBody}</p>
           {onAddAsset ? (
@@ -71,7 +71,7 @@ export default function PortfolioActionWatchlist({ items, language, isPro, compa
           {visibleItems.map((item) => (
             <article
               key={item.symbol}
-              className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 md:p-5 space-y-3"
+              className="rounded-sm border border-white/[0.06] bg-[#050505] border border-white/10 p-4 md:p-5 space-y-3"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -99,7 +99,7 @@ export default function PortfolioActionWatchlist({ items, language, isPro, compa
               <p className="text-xs text-slate-400 leading-relaxed">{item.reason}</p>
 
               {isPro && (
-                <div className="rounded-xl border border-white/[0.05] bg-black/10 px-3 py-2.5">
+                <div className="rounded-sm border border-white/[0.05] bg-black/10 px-3 py-2.5">
                   <p className="text-[9px] font-mono uppercase tracking-widest text-slate-600">{t.watch}</p>
                   <p className="mt-1 text-xs text-slate-400 leading-relaxed">{item.whatToWatch}</p>
                 </div>

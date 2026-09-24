@@ -76,22 +76,28 @@ export default function ContextLayer({ copy, summary, instruments }: Props) {
   ]
 
   return (
-    <section className="card dashboard-card" id="context-layer">
-      <div className="dashboard-summary-head context-layer-head">
-        <div>
-          <p className="dashboard-summary-kicker">{copy.contextLayer}</p>
-          <h3 style={{ fontSize: '1.06rem' }}>{copy.marketSummary}</h3>
-          <p className="summary-text context-layer-summary">{summary.trim() || copy.contextLayerLead}</p>
-        </div>
+    <section className="py-10 border-t border-white/[0.05]" id="context-layer">
+      <div className="mb-8">
+        <p className="text-[10px] font-mono text-teal-500/80 uppercase tracking-widest mb-3">
+          [ {copy.contextLayer} ]
+        </p>
+        <h3 className="text-xl md:text-2xl font-serif text-slate-200 mb-2">
+          {copy.marketSummary}
+        </h3>
+        <p className="text-sm text-slate-400 max-w-3xl leading-relaxed">
+          {summary.trim() || copy.contextLayerLead}
+        </p>
       </div>
 
-      <div className="context-layer-grid">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-6 border-t border-white/[0.05]">
         {cards.map((card) => (
-          <div key={card.label} className="context-layer-card">
-            <span className="dashboard-stat-label">{card.label}</span>
-            <strong className="context-layer-value">{card.value}</strong>
-            <span className="context-layer-meta">{copy.changeLabel}: {card.delta}</span>
-            <span className="context-layer-meta">{copy.lastUpdateLabel}: {card.updatedAt}</span>
+          <div key={card.label} className="flex flex-col gap-2">
+            <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">{card.label}</span>
+            <strong className="text-lg text-slate-200 font-medium">{card.value}</strong>
+            <div className="flex flex-col gap-0.5 mt-1">
+              <span className="text-[10px] text-slate-500">{copy.changeLabel}: <span className={card.delta.startsWith('+') ? 'text-emerald-400' : card.delta.startsWith('-') ? 'text-red-400' : ''}>{card.delta}</span></span>
+              <span className="text-[10px] text-slate-600">{copy.lastUpdateLabel}: {card.updatedAt}</span>
+            </div>
           </div>
         ))}
       </div>

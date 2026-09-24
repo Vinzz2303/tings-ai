@@ -1,14 +1,6 @@
 /**
  * TingAiCopilot.tsx
- *
- * The Ting AI Copilot — a thinking partner chat UI embedded in the portfolio workspace.
- *
- * Design principles:
- *   - Premium, minimal, dark. No clutter.
- *   - Every response follows 4-part structure (Acknowledge → Context → Insight → Reflection)
- *   - Chip suggestions guide next thoughts without prescribing actions
- *   - Trust badge shown subtly in assistant message footer
- *   - Fully i18n'd via tingAiI18n.ts
+ * Redesigned for Premium Utilitarian Minimalism
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
@@ -19,85 +11,63 @@ import { runCopilotV2, type CopilotResponse } from '../../services/copilotServic
 import { normalizeDisplaySymbol } from '../../utils/assetNormalization'
 import { useLanguagePreference } from '../../utils/language'
 import { getTingAiI18n } from '../../utils/tingAiI18n'
+import ReactMarkdown from 'react-markdown'
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Minimalist Dark Tokens ──
 const C = {
-  bg:       '#0b0d12',
-  surface:  'rgba(255,255,255,0.025)',
-  border:   'rgba(255,255,255,0.07)',
-  teal:     '#14b8a6',
-  amber:    '#f59e0b',
-  slate300: '#cbd5e1',
-  slate400: '#94a3b8',
-  slate500: '#64748b',
-  slate600: '#475569',
-  slate700: '#334155',
-  white:    '#ffffff',
-  mono:     "'SF Mono', 'Fira Mono', 'JetBrains Mono', monospace",
-  red400:   '#f87171',
+  bg:       '#09090b', // zinc-950
+  surface:  '#18181b', // zinc-900
+  border:   '#27272a', // zinc-800
+  borderHover: '#3f3f46',
+  text:     '#e4e4e7', // zinc-200
+  muted:    '#a1a1aa', // zinc-400
+  faded:    '#71717a', // zinc-500
+  accent:   '#3f3f46', // zinc-700
+  mono:     "'Geist Mono', 'SF Mono', 'JetBrains Mono', monospace",
+  sans:     "'Inter', system-ui, sans-serif",
+  serif:    "'Instrument Serif', 'Newsreader', 'Playfair Display', serif",
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
 export interface TingAiCopilotProps {
   market: MarketCondition
   portfolio: AssetWeight[]
   trust: ConfidenceScore
   insight: FullInsight
-  /** if false, copilot is still shown but chips are reduced */
   isPro?: boolean
 }
 
-// ── Message shape ─────────────────────────────────────────────────────────────
 interface Message {
   role: 'user' | 'assistant'
   content: string
   chips?: string[]
   meta?: CopilotResponse['meta']
+  image?: string
 }
 
-// ── Trust level badge ─────────────────────────────────────────────────────────
-const TRUST_COLORS: Record<'HIGH' | 'MEDIUM' | 'LOW', string> = {
-  HIGH:   '#22d3ee',
-  MEDIUM: '#f59e0b',
-  LOW:    '#f87171',
-}
+// ── Components ──
 
-function TrustMicro({ level }: { level: 'HIGH' | 'MEDIUM' | 'LOW' }) {
-  const color = TRUST_COLORS[level]
+function TypingIndicator() {
   return (
-    <span style={{
-      fontFamily: C.mono,
-      fontSize: 9,
-      fontWeight: 700,
-      textTransform: 'uppercase',
-      letterSpacing: '0.15em',
-      color,
-      opacity: 0.7,
-    }}>
-      ▸ {level}
-    </span>
-  )
-}
-
-// ── Typing indicator ──────────────────────────────────────────────────────────
-function TypingDots() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0' }}>
-      {[0, 1, 2].map(i => (
-        <motion.div
-          key={i}
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-          style={{ width: 5, height: 5, borderRadius: '50%', background: C.teal }}
-        />
-      ))}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '12px 0' }}>
+      <span style={{ fontFamily: C.mono, fontSize: 10, color: C.faded, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        Ting AI is thinking
+      </span>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {[0, 1, 2].map(i => (
+          <motion.div
+            key={i}
+            animate={{ opacity: [0.2, 1, 0.2] }}
+            transition={{ duration: 1.4, repeat: Infinity, delay: i * 0.2 }}
+            style={{ width: 4, height: 4, borderRadius: '50%', background: C.muted }}
+          />
+        ))}
+      </div>
     </div>
   )
 }
-// ── Chip button ───────────────────────────────────────────────────────────────
-function ChipButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
+
+function Chip({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
   const [hovered, setHovered] = useState(false)
-  const displayLabel = normalizeDisplaySymbol(label)
   return (
     <button
       onClick={onClick}
@@ -105,97 +75,92 @@ function ChipButton({ label, onClick, disabled }: { label: string; onClick: () =
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        padding: '6px 14px',
-        borderRadius: 99,
-        border: `1px solid ${hovered ? C.teal + '40' : C.border}`,
-        background: hovered ? `${C.teal}0d` : 'transparent',
-        color: hovered ? C.teal : C.slate400,
+        padding: '6px 12px',
+        borderRadius: 4,
+        border: `1px solid ${hovered ? C.borderHover : C.border}`,
+        background: hovered ? C.surface : 'transparent',
+        color: hovered ? C.text : C.muted,
         fontFamily: C.mono,
         fontSize: 11,
         cursor: disabled ? 'not-allowed' : 'pointer',
         transition: 'all 0.2s ease',
         opacity: disabled ? 0.5 : 1,
-        whiteSpace: 'normal',
         textAlign: 'left',
-        lineHeight: 1.4,
       }}
     >
-      {displayLabel}
+      {normalizeDisplaySymbol(label)}
     </button>
   )
 }
 
-// ── Single message bubble ─────────────────────────────────────────────────────
-function MessageBubble({ msg, onChipClick, isTyping, t }: {
-  msg: Message
-  onChipClick: (chip: string) => void
-  isTyping: boolean
-  t: ReturnType<typeof getTingAiI18n>
-}) {
+function MessageBlock({ msg, onChipClick, t }: { msg: Message; onChipClick: (c: string) => void; t: any }) {
   const isUser = msg.role === 'user'
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
       style={{
         display: 'flex',
         flexDirection: 'column',
-        alignItems: isUser ? 'flex-end' : 'flex-start',
         gap: 8,
+        padding: isUser ? '0 0 0 24px' : '0 24px 0 0',
+        alignItems: isUser ? 'flex-end' : 'flex-start',
       }}
     >
-      {/* Bubble */}
       <div style={{
-        maxWidth: isUser ? '75%' : '100%',
-        padding: isUser ? '10px 16px' : '16px 20px',
-        borderRadius: isUser ? '16px 16px 4px 16px' : '4px 16px 16px 16px',
-        background: isUser
-          ? 'rgba(20,184,166,0.12)'
-          : 'rgba(255,255,255,0.03)',
-        border: `1px solid ${isUser ? 'rgba(20,184,166,0.2)' : C.border}`,
+        padding: isUser ? '12px 16px' : '0',
+        background: isUser ? C.surface : 'transparent',
+        border: isUser ? `1px solid ${C.border}` : 'none',
+        borderRadius: isUser ? 8 : 0,
+        maxWidth: isUser ? '80%' : '100%',
       }}>
-        {msg.role === 'assistant' && isTyping ? (
-          <TypingDots />
-        ) : (
-          <p style={{
-            margin: 0,
-            fontSize: 14,
-            lineHeight: 1.75,
-            color: isUser ? C.teal : C.slate300,
-            whiteSpace: 'pre-line',
-          }}>
-            {msg.content}
-          </p>
-        )}
-
-        {/* Trust micro-badge in assistant footer */}
-        {!isUser && !isTyping && msg.meta && (
-          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid rgba(255,255,255,0.05)`, paddingTop: 8 }}>
-            <span style={{ fontFamily: C.mono, fontSize: 9, color: C.slate500, letterSpacing: '0.04em' }}>
-              {t.basedOnCurrentData}
-            </span>
-            <TrustMicro level={msg.meta.usedTrust} />
-            {msg.meta.hasFallback && (
-              <span style={{ fontFamily: C.mono, fontSize: 9, color: C.slate700, letterSpacing: '0.1em' }}>
-                {t.copilotFallbackNote}
-              </span>
+        {isUser ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {msg.image && (
+              <img src={msg.image} alt="User Upload" style={{ maxWidth: 300, borderRadius: 4, border: `1px solid ${C.border}` }} />
             )}
+            <p style={{
+              margin: 0,
+              fontFamily: C.sans,
+              fontSize: 14,
+              lineHeight: 1.7,
+              color: C.text,
+              whiteSpace: 'pre-line',
+              fontWeight: 400,
+            }}>
+              {msg.content}
+            </p>
+          </div>
+        ) : (
+          <div className="prose prose-invert max-w-none" style={{
+            margin: 0,
+            fontFamily: C.sans,
+            fontSize: 14,
+            lineHeight: 1.7,
+            color: C.text,
+            fontWeight: 400,
+          }}>
+            <ReactMarkdown>{msg.content}</ReactMarkdown>
           </div>
         )}
       </div>
 
-      {/* Chip row for assistant messages */}
-      {!isUser && !isTyping && msg.chips && msg.chips.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 4 }}>
+      {!isUser && msg.meta && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+          <span style={{ fontFamily: C.mono, fontSize: 9, color: C.faded, letterSpacing: '0.05em' }}>
+            {t.basedOnCurrentData}
+          </span>
+          <span style={{ fontFamily: C.mono, fontSize: 9, color: C.muted, letterSpacing: '0.1em' }}>
+            {msg.meta.usedTrust} CONFIDENCE
+          </span>
+        </div>
+      )}
+
+      {!isUser && msg.chips && msg.chips.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
           {msg.chips.map(chip => (
-            <ChipButton
-              key={chip}
-              label={chip}
-              onClick={() => onChipClick(chip)}
-              disabled={isTyping}
-            />
+            <Chip key={chip} label={chip} onClick={() => onChipClick(chip)} disabled={false} />
           ))}
         </div>
       )}
@@ -203,68 +168,6 @@ function MessageBubble({ msg, onChipClick, isTyping, t }: {
   )
 }
 
-// ── Welcome message ───────────────────────────────────────────────────────────
-function WelcomeState({ onChipClick, t, isPro }: { onChipClick: (c: string) => void; t: ReturnType<typeof getTingAiI18n>; isPro: boolean }) {
-  const starterChips = isPro ? t.proPromptChips : t.freePromptChips
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '8px 0' }}
-    >
-      {/* Brand row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{
-          width: 28, height: 28, borderRadius: 9,
-          background: isPro ? 'rgba(245,158,11,0.1)' : 'rgba(20,184,166,0.1)',
-          border: isPro ? '1px solid rgba(245,158,11,0.2)' : '1px solid rgba(20,184,166,0.2)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>
-          {isPro ? (
-            <svg width="12" height="12" fill={C.amber} viewBox="0 0 24 24">
-              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-            </svg>
-          ) : (
-            <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.teal }} />
-          )}
-        </div>
-        <div>
-          <div style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', color: isPro ? C.amber : C.teal }}>
-            {isPro ? 'Ting AI Copilot' : 'Ting AI'}
-          </div>
-          <div style={{ fontFamily: C.mono, fontSize: 9, color: C.slate600, letterSpacing: '0.1em' }}>
-            {t.copilotTagline}
-          </div>
-        </div>
-      </div>
-
-      {/* Welcome content */}
-      <p style={{ margin: 0, fontSize: 13, color: C.slate500, lineHeight: 1.7, maxWidth: 480 }}>
-        {t.copilotWelcome}
-      </p>
-
-      {/* Starter chips */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {starterChips.map(chip => (
-          <ChipButton key={chip} label={chip} onClick={() => onChipClick(chip)} disabled={false} />
-        ))}
-      </div>
-    </motion.div>
-  )
-}
-
-// ── Send icon ─────────────────────────────────────────────────────────────────
-function SendIcon({ color }: { color: string }) {
-  return (
-    <svg width="16" height="16" fill="none" stroke={color} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-    </svg>
-  )
-}
-
-// ── Main export ───────────────────────────────────────────────────────────────
 export default function TingAiCopilot({ market, portfolio, trust, insight, isPro = false }: TingAiCopilotProps) {
   const { language: hookLang } = useLanguagePreference()
   const lang = hookLang as 'id' | 'en'
@@ -273,10 +176,12 @@ export default function TingAiCopilot({ market, portfolio, trust, insight, isPro
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isTyping, setIsTyping] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Auto-scroll to bottom on new message
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -287,228 +192,281 @@ export default function TingAiCopilot({ market, portfolio, trust, insight, isPro
     const trimmed = content.trim()
     if (!trimmed || isTyping) return
 
-    const userMsg: Message = { role: 'user', content: trimmed }
-    const previousMessages = messages
-    setMessages(prev => [...prev, userMsg])
+    if (!isPro) {
+      const today = new Date().toDateString()
+      const usageKey = `tingai_copilot_usage_${today}`
+      const usageCount = parseInt(localStorage.getItem(usageKey) || '0', 10)
+      if (usageCount >= 3) {
+        setMessages(prev => [...prev, { role: 'assistant', content: lang === 'id' ? 'Batas harian Copilot (3 pesan) telah habis. Upgrade ke Ting AI Pro untuk akses tanpa batas.' : 'Daily Copilot limit reached (3 messages). Upgrade to Ting AI Pro.' }])
+        return
+      }
+      localStorage.setItem(usageKey, (usageCount + 1).toString())
+    }
+
+    const currentImage = selectedImage
     setInput('')
+    setSelectedImage(null)
+    setMessages(prev => [...prev, { role: 'user', content: trimmed, image: currentImage || undefined }])
     setIsTyping(true)
 
     try {
       const response = await runCopilotV2({
         message: trimmed,
-        lang,
-        mode: 'copilot',
-        market,
-        portfolio,
-        trust,
-        insight,
-        messages: previousMessages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        })),
+        image: currentImage || undefined,
+        lang, mode: 'copilot', market, portfolio, trust, insight,
+        messages: messages.map(m => ({ role: m.role, content: m.content, image: m.image })),
       })
-
-      const assistantMsg: Message = {
-        role: 'assistant',
-        content: response.text,
-        chips: response.chips,
-        meta: response.meta,
-      }
-
-      setMessages(prev => [...prev, assistantMsg])
+      setMessages(prev => [...prev, { role: 'assistant', content: response.text, chips: response.chips, meta: response.meta }])
     } finally {
       setIsTyping(false)
     }
-  }, [insight, isTyping, lang, market, messages, portfolio, trust])
+  }, [insight, isTyping, lang, market, messages, portfolio, trust, isPro, selectedImage])
 
-  const handleSend = () => sendMessage(input)
-  const handleChip = (chip: string) => sendMessage(chip)
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX_WIDTH = 800
+        const MAX_HEIGHT = 800
+        let width = img.width
+        let height = img.height
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width
+            width = MAX_WIDTH
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height
+            height = MAX_HEIGHT
+          }
+        }
+
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, width, height)
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8)
+        setSelectedImage(compressedBase64)
+      }
+      img.src = event.target?.result as string
+    }
+    reader.readAsDataURL(file)
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      sendMessage(input)
     }
-  }
-
-  const handleReset = () => {
-    setMessages([])
-    setInput('')
-    setIsTyping(false)
-    inputRef.current?.focus()
   }
 
   const isEmpty = messages.length === 0
 
-  const inputPlaceholder = t.copilotPlaceholder
-
   return (
-    <div
-      id="ting-ai-copilot"
-      style={{
-        borderRadius: 18,
-        border: `1px solid ${C.border}`,
-        background: C.surface,
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 420,
-        position: 'relative',
-      }}
-    >
-      {/* Accent top line */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 1,
-        background: `linear-gradient(90deg, transparent, ${C.amber}40, transparent)`,
-        pointerEvents: 'none',
-      }} />
-
-      {/* ── Header ────────────────────────────────────────────────── */}
-      <div style={{
-        padding: '14px 20px',
-        borderBottom: `1px solid ${C.border}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.amber, boxShadow: `0 0 6px ${C.amber}60` }} />
-          <span style={{ fontFamily: C.mono, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2em', color: C.amber }}>
-            {t.copilotHeaderName}
-          </span>
-          {/* Trust indicator */}
-          <span style={{
-            fontFamily: C.mono, fontSize: 9, letterSpacing: '0.12em',
-            color: TRUST_COLORS[trust.confidence], opacity: 0.6,
-            padding: '2px 7px', borderRadius: 99,
-            border: `1px solid ${TRUST_COLORS[trust.confidence]}25`,
-            background: `${TRUST_COLORS[trust.confidence]}0a`,
-          }}>
-            {trust.confidence}
-          </span>
-        </div>
-
-        {!isEmpty && (
-          <button
-            onClick={handleReset}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontFamily: C.mono, fontSize: 10, color: C.slate600,
-              textTransform: 'uppercase', letterSpacing: '0.12em',
-              transition: 'color 0.2s',
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.slate400 }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.slate600 }}
-          >
-            {t.copilotReset}
-          </button>
-        )}
-      </div>
-
-      {/* ── Message area ──────────────────────────────────────────── */}
+    <div style={{
+      width: '100%',
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      background: C.bg,
+      border: `1px solid ${C.border}`,
+      borderRadius: 12,
+      overflow: 'hidden',
+    }}>
+      
+      {/* ── Chat History ── */}
       <div
         ref={scrollRef}
         style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px 20px 0',
+          padding: '40px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 28,
+          gap: 32,
           scrollbarWidth: 'none',
         }}
       >
         <AnimatePresence mode="popLayout">
           {isEmpty ? (
-            <WelcomeState key="welcome" onChipClick={handleChip} t={t} isPro={isPro} />
-          ) : (
-            messages.map((msg, idx) => (
-              <MessageBubble
-                key={idx}
-                msg={msg}
-                onChipClick={handleChip}
-                isTyping={false}
-                t={t}
-              />
-            ))
-          )}
-          {isTyping && (
             <motion.div
-              key="typing"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              style={{ alignSelf: 'flex-start', padding: '12px 16px', borderRadius: '4px 16px 16px 16px', background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}` }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                height: '100%',
+                maxWidth: 600,
+                margin: '0 auto',
+                width: '100%'
+              }}
             >
-              <TypingDots />
+              <h1 style={{ 
+                fontFamily: C.serif, 
+                fontSize: '2.5rem', 
+                fontWeight: 400, 
+                color: C.text,
+                lineHeight: 1.1,
+                letterSpacing: '-0.02em',
+                marginBottom: 16
+              }}>
+                {lang === 'id' ? 'Selamat datang di Ruang Kerja Anda.' : 'Welcome to your Workspace.'}
+              </h1>
+              <p style={{ 
+                fontFamily: C.sans, 
+                fontSize: 14, 
+                color: C.muted,
+                lineHeight: 1.6,
+                marginBottom: 32,
+                maxWidth: 480
+              }}>
+                {t.copilotWelcome}
+              </p>
+              
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                {(isPro ? t.proPromptChips : t.freePromptChips).map((c: string) => (
+                  <Chip key={c} label={c} onClick={() => sendMessage(c)} disabled={false} />
+                ))}
+              </div>
             </motion.div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 40, maxWidth: 800, margin: '0 auto', width: '100%' }}>
+              {messages.map((msg, idx) => (
+                <MessageBlock key={idx} msg={msg} onChipClick={sendMessage} t={t} />
+              ))}
+              {isTyping && <TypingIndicator />}
+            </div>
           )}
         </AnimatePresence>
-        {/* Scroll anchor */}
-        <div style={{ height: 20, flexShrink: 0 }} />
       </div>
 
-      {/* ── Input ─────────────────────────────────────────────────── */}
-      <div
-        className="sticky z-20 md:static"
-        style={{
-          bottom: 'calc(4rem + env(safe-area-inset-bottom))',
-          padding: '12px 16px 16px',
-          borderTop: `1px solid ${C.border}`,
-          display: 'flex', alignItems: 'center', gap: 10,
-          flexShrink: 0,
-          background: 'rgba(11,13,18,0.95)',
-          backdropFilter: 'blur(10px)',
-        }}
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={isTyping}
-          placeholder={inputPlaceholder}
-          id="copilot-input"
-          style={{
-            flex: 1,
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            fontSize: 13,
-            color: C.white,
-            fontFamily: 'Inter, system-ui, sans-serif',
-            opacity: isTyping ? 0.5 : 1,
-            caretColor: C.teal,
-          }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={isTyping || !input.trim()}
-          id="copilot-send-btn"
-          style={{
-            width: 34, height: 34,
-            borderRadius: 10,
-            border: 'none',
-            background: input.trim() && !isTyping ? `${C.teal}18` : 'transparent',
-            cursor: input.trim() && !isTyping ? 'pointer' : 'not-allowed',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'all 0.2s ease',
-            flexShrink: 0,
-          }}
-        >
-          <SendIcon color={input.trim() && !isTyping ? C.teal : C.slate700} />
-        </button>
-      </div>
-
-      {/* Disclaimer strip */}
+      {/* ── Input Area ── */}
       <div style={{
-        padding: '6px 16px 10px',
-        textAlign: 'center',
-        flexShrink: 0,
+        padding: '24px 40px',
+        borderTop: `1px solid ${C.border}`,
+        background: C.bg,
       }}>
-        <span style={{ fontFamily: C.mono, fontSize: 9, color: C.slate700, letterSpacing: '0.1em' }}>
-          {t.insightDisclaimer}
-        </span>
+        <div style={{
+          position: 'relative',
+          maxWidth: 800,
+          margin: '0 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          background: C.surface,
+          border: `1px solid ${C.border}`,
+          borderRadius: 8,
+          transition: 'border 0.2s ease',
+        }}
+        onFocus={e => e.currentTarget.style.borderColor = C.borderHover}
+        onBlur={e => e.currentTarget.style.borderColor = C.border}
+        >
+          {selectedImage && (
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <img src={selectedImage} alt="Preview" style={{ height: 60, borderRadius: 4, border: `1px solid ${C.border}` }} />
+              <button onClick={() => setSelectedImage(null)} style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 4 }}>
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isTyping}
+            placeholder={t.copilotPlaceholder}
+            rows={1}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              color: C.text,
+              fontFamily: C.sans,
+              fontSize: 14,
+              padding: '16px 48px 16px 16px',
+              resize: 'none',
+              lineHeight: 1.5,
+              minHeight: 54,
+              opacity: isTyping ? 0.5 : 1,
+            }}
+          />
+          
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImageUpload}
+            accept="image/*"
+            style={{ display: 'none' }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isTyping}
+            style={{
+              position: 'absolute',
+              right: 48,
+              bottom: 12,
+              width: 30,
+              height: 30,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              color: selectedImage ? C.text : C.muted,
+              border: 'none',
+              cursor: isTyping ? 'default' : 'pointer',
+              transition: 'color 0.2s ease',
+            }}
+          >
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </button>
+          
+          <button
+            onClick={() => sendMessage(input)}
+            disabled={!input.trim() || isTyping}
+            style={{
+              position: 'absolute',
+              right: 12,
+              bottom: 12,
+              width: 30,
+              height: 30,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: input.trim() && !isTyping ? C.text : 'transparent',
+              color: input.trim() && !isTyping ? C.bg : C.muted,
+              border: 'none',
+              borderRadius: 4,
+              cursor: input.trim() && !isTyping ? 'pointer' : 'default',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+        
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <span style={{ fontFamily: C.mono, fontSize: 10, color: C.faded }}>
+            {t.insightDisclaimer}
+          </span>
+        </div>
       </div>
+
     </div>
   )
 }

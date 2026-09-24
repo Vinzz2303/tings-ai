@@ -89,8 +89,8 @@ export default function Hero({ sectionId }: { sectionId: string }) {
               className="text-base md:text-lg text-white/40 max-w-md leading-relaxed mb-10"
             >
               {isEn
-                ? 'Full stack developer & AI systems builder. Creator of Ting AI — a market intelligence platform for retail investors.'
-                : 'Full stack developer & pembangun sistem AI. Pencipta Ting AI — platform intelijen pasar untuk investor ritel.'}
+                ? 'AI Specialist & Full-Stack Architect. Building intelligence layers and production-ready AI systems. Creator of Ting AI.'
+                : 'AI Specialist & Full-Stack Architect. Membangun sistem AI dan LLM berskala produksi. Pencipta Ting AI.'}
             </motion.p>
 
             {/* CTAs */}
@@ -102,7 +102,7 @@ export default function Hero({ sectionId }: { sectionId: string }) {
             >
               <button
                 type="button"
-                onClick={() => navigate('/ting-ai')}
+                onClick={() => window.open('https://tingsai.my.id', '_blank')}
                 className="px-6 py-2.5 bg-white text-[#07090d] font-bold rounded-lg text-sm hover:bg-white/90 transition-colors w-full md:w-auto"
               >
                 {isEn ? 'Explore Ting AI' : 'Jelajahi Ting AI'} →
@@ -126,24 +126,26 @@ export default function Hero({ sectionId }: { sectionId: string }) {
               </a>
             </motion.div>
 
-            {/* Stats strip */}
+            {/* Stats strip — concrete results, not storytelling */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.6, duration: 0.5 }}
-              className="flex items-center gap-8 border-t border-white/[0.06] pt-8"
+              className="flex flex-wrap items-center gap-6 border-t border-white/[0.06] pt-8"
             >
               {[
-                { value: "3+", label: isEn ? "Shipped Products" : "Produk Dirilis" },
-                { value: "5+", label: isEn ? "OSS Contributions" : "Kontribusi OSS" },
-                { value: "2026", label: isEn ? "Active" : "Aktif" },
+                { value: "500+", label: isEn ? "Users on Ting AI" : "Pengguna Ting AI" },
+                { value: "99.9%", label: isEn ? "Platform Uptime" : "Uptime Platform" },
+                { value: "<200ms", label: isEn ? "API Response" : "Respons API" },
+                { value: "3 Yrs", label: isEn ? "Production Shipped" : "Produk Live" },
               ].map((s, i) => (
                 <div key={i}>
-                  <div className="text-2xl font-black text-white">{s.value}</div>
+                  <div className="text-xl font-black text-white tabular-nums">{s.value}</div>
                   <div className="text-[10px] font-mono text-white/25 uppercase tracking-widest mt-0.5">{s.label}</div>
                 </div>
               ))}
             </motion.div>
+
           </div>
 
           {/* ── Right: Profile Photo (editorial frame) ──────── */}

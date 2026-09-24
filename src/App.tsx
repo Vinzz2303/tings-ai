@@ -1,41 +1,89 @@
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import MobileBottomNav from './components/MobileBottomNav'
 import Navbar from './components/Navbar'
-import Hero from './components/Hero'
-import FeaturedProduct from './components/FeaturedProduct'
-import Projects from './components/Projects'
 import Footer from './components/Footer'
-import Dashboard from './views/Dashboard'
-import LifeOS from './views/LifeOS'
+import ProtectedRoute from './views/ProtectedRoute'
+// T4: Eager-loaded (auth + landing — must be instant)
 import Login from './views/Login'
 import Signup from './views/Signup'
 import ForgotPassword from './views/ForgotPassword'
 import ResetPassword from './views/ResetPassword'
-import ProtectedRoute from './views/ProtectedRoute'
-import Profile from './views/Profile'
-import Upgrade from './views/Upgrade'
-import AdminPro from './views/AdminPro'
-import Portfolio from './views/Portfolio'
-import TingAi from './views/TingAi'
-import TingAiTwo from './views/TingAiTwo'
-import TingAiLanding from './views/TingAiLanding'
-import KomandoPagiPage from './views/KomandoPagiPage'
 import VerifyEmail from './views/VerifyEmail'
-import ExploreIntelligence from './views/ExploreIntelligence'
-import DecisionJournalPage from './views/DecisionJournalPage'
-import DecisionJournal from './components/DecisionJournal'
-import Founder from './components/Founder'
-import Experience from './components/Experience'
-import Contact from './components/Contact'
-import SystemStack from './components/SystemStack'
-import SystemThinking from './components/SystemThinking'
-import Philosophy from './components/Philosophy'
-import BlogList from './views/BlogList'
-import BlogPost from './views/BlogPost'
+import TingAiLanding from './views/TingAiLanding'
+// T4: Lazy-loaded (heavy views — loaded on demand)
+const Dashboard        = lazy(() => import('./views/Dashboard'))
+const LifeOS           = lazy(() => import('./views/LifeOS'))
+const Profile          = lazy(() => import('./views/Profile'))
+const Upgrade          = lazy(() => import('./views/Upgrade'))
+const AdminPro         = lazy(() => import('./views/AdminPro'))
+const Portfolio        = lazy(() => import('./views/Portfolio'))
+const TingAi           = lazy(() => import('./views/TingAi'))
+const TingAiTwo        = lazy(() => import('./views/TingAiTwo'))
+const KomandoPagiPage  = lazy(() => import('./views/KomandoPagiPage'))
+const ExploreIntelligence = lazy(() => import('./views/ExploreIntelligence'))
+const DemoPercetakan   = lazy(() => import('./views/DemoPercetakan'))
+const DemoSekolah      = lazy(() => import('./views/DemoSekolah'))
+const Screener         = lazy(() => import('./views/Screener'))
+const DecisionJournalPage = lazy(() => import('./views/DecisionJournalPage'))
+const TradeJournalPage    = lazy(() => import('./views/TradeJournalPage'))
+const BlogList         = lazy(() => import('./views/BlogList'))
+const BlogPost         = lazy(() => import('./views/BlogPost'))
+const CV               = lazy(() => import('./views/CV'))
+// T4: Personal homepage components — lazy-loaded chunk
+const Hero             = lazy(() => import('./components/Hero'))
+const FeaturedProduct  = lazy(() => import('./components/FeaturedProduct'))
+const Projects         = lazy(() => import('./components/Projects'))
+const Founder          = lazy(() => import('./components/Founder'))
+const Experience       = lazy(() => import('./components/Experience'))
+const Contact          = lazy(() => import('./components/Contact'))
+const SystemStack      = lazy(() => import('./components/SystemStack'))
+const SystemThinking   = lazy(() => import('./components/SystemThinking'))
+const Philosophy       = lazy(() => import('./components/Philosophy'))
+const DecisionJournal  = lazy(() => import('./components/DecisionJournal'))
 import { useLanguagePreference } from './utils/language'
 import { useDocumentMetadata } from './utils/metadata'
 import { isPersonalDomain as checkIsPersonalDomain } from './utils/domain'
+
+// T4: PageLoader — shown while lazy chunks are downloading
+function PageLoader() {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#080a0f',
+        flexDirection: 'column',
+        gap: '16px',
+      }}
+    >
+      <div
+        style={{
+          width: '32px',
+          height: '32px',
+          borderRadius: '50%',
+          border: '2px solid rgba(20,184,166,0.2)',
+          borderTopColor: '#14b8a6',
+          animation: 'spin 0.7s linear infinite',
+        }}
+      />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <span
+        style={{
+          fontFamily: 'monospace',
+          fontSize: '10px',
+          letterSpacing: '0.15em',
+          textTransform: 'uppercase',
+          color: 'rgba(255,255,255,0.25)',
+        }}
+      >
+        Loading...
+      </span>
+    </div>
+  )
+}
 
 const sections = ['hero', 'system-stack', 'founder', 'experience', 'featured', 'system-flow', 'projects', 'philosophy', 'contact'] as const
 
@@ -148,6 +196,20 @@ function RouteMetadata() {
           path: '/profile',
           robots: 'noindex, nofollow'
         }
+      case '/demo/percetakan':
+        return {
+          title: 'Demo Percetakan (AI Assistant)',
+          description: 'Halaman demo khusus klien percetakan. Tersembunyi dari publik.',
+          path: '/demo/percetakan',
+          robots: 'noindex, nofollow'
+        }
+      case '/demo/sekolah':
+        return {
+          title: 'TING AI Parent Care | Demo',
+          description: 'Halaman demo khusus TING AI Parent Care untuk SD IT / SMP IT. Tersembunyi dari publik.',
+          path: '/demo/sekolah',
+          robots: 'noindex, nofollow'
+        }
       case '/upgrade':
         return {
           title: 'Upgrade Pro | Ting AI',
@@ -188,6 +250,13 @@ function RouteMetadata() {
               : 'Ringkasan akun tervalidasi untuk sesi Ting AI yang sedang aktif.',
           path: '/personal-space',
           robots: 'noindex, nofollow'
+        }
+      case '/cv':
+        return {
+          title: 'CV — Faturachman Alkahfi | Full-Stack Engineer & AI Builder',
+          description: 'Resume of Faturachman Alkahfi: 500+ users on Ting AI, 3,000+ students served at Universitas Primagraha, 3+ production systems shipped.',
+          path: '/cv',
+          robots: 'index, follow'
         }
       case '/blog':
         return {
@@ -231,7 +300,7 @@ function RouteMetadata() {
   return null
 }
 
-const STANDALONE_PATHS = ['/login', '/signup', '/forgot', '/reset', '/verify-email', '/ting-ai']
+const STANDALONE_PATHS = ['/login', '/signup', '/forgot', '/reset', '/verify-email', '/ting-ai', '/cv', '/demo', '/screener']
 
 function AppShell() {
   const location = useLocation()
@@ -255,16 +324,23 @@ function AppShell() {
     return (
       <>
         <RouteMetadata />
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/forgot" element={<ForgotPassword />} />
-          <Route path="/reset" element={<ResetPassword />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
-          <Route path="/ting-ai" element={<TingAi />} />
-          {isTingAiRoot && <Route path="/" element={<TingAiLanding />} />}
-        </Routes>
-        <MobileBottomNav />
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/forgot" element={<ForgotPassword />} />
+            <Route path="/reset" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/screener" element={<Screener />} />
+            <Route path="/ting-ai" element={<TingAi />} />
+            <Route path="/cv" element={isPersonal ? <CV /> : <Navigate to="/" replace />} />
+            <Route path="/demo/percetakan" element={<DemoPercetakan />} />
+            <Route path="/demo/sekolah" element={<DemoSekolah />} />
+            {isTingAiRoot && <Route path="/" element={<TingAiLanding />} />}
+          </Routes>
+        </Suspense>
+        {/* No MobileBottomNav for /cv — it's a print page */}
+        {location.pathname !== '/cv' && <MobileBottomNav />}
       </>
     )
   }
@@ -273,101 +349,119 @@ function AppShell() {
     <div className="app pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
       <Navbar />
       <RouteMetadata />
-      <Routes>
-        <Route path="/" element={isPersonal ? <HomePage /> : <Navigate to="/" replace />} />
-        <Route path="/ting-ai-2" element={<Navigate to="/explore-intelligence" replace />} />
-        <Route path="/decision-briefing" element={<Navigate to="/explore-intelligence" replace />} />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/personal-space"
-          element={
-            <ProtectedRoute>
-              <LifeOS />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/lifeos" element={<Navigate to="/personal-space" replace />} />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/upgrade"
-          element={
-            <ProtectedRoute>
-              <Upgrade />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/pro"
-          element={
-            <ProtectedRoute>
-              <AdminPro />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/portfolio"
-          element={
-            <ProtectedRoute>
-              <Portfolio />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/explore-intelligence"
-          element={
-            <ProtectedRoute>
-              <ExploreIntelligence />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/decision-journal"
-          element={
-            <ProtectedRoute>
-              <DecisionJournalPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/morning-command"
-          element={
-            <ProtectedRoute>
-              <KomandoPagiPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/komando-pagi"
-          element={
-            <ProtectedRoute>
-              <KomandoPagiPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/blog" element={isPersonal ? <BlogList /> : <Navigate to="/" replace />} />
-        <Route path="/blog/:slug" element={isPersonal ? <BlogPost /> : <Navigate to="/" replace />} />
-        <Route path="*" element={isPersonal ? <HomePage /> : <Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/" element={isPersonal ? <HomePage /> : <Navigate to="/" replace />} />
+          <Route path="/ting-ai-2" element={<Navigate to="/explore-intelligence" replace />} />
+          <Route path="/decision-briefing" element={<Navigate to="/explore-intelligence" replace />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/personal-space"
+            element={
+              <ProtectedRoute>
+                <LifeOS />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/lifeos" element={<Navigate to="/personal-space" replace />} />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/upgrade"
+            element={
+              <ProtectedRoute>
+                <Upgrade />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/pro"
+            element={
+              <ProtectedRoute>
+                <AdminPro />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/portfolio"
+            element={
+              <ProtectedRoute>
+                <Portfolio />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/explore-intelligence"
+            element={
+              <ProtectedRoute>
+                <ExploreIntelligence />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/decision-journal"
+            element={
+              <ProtectedRoute>
+                <DecisionJournalPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/morning-command"
+            element={
+              <ProtectedRoute>
+                <KomandoPagiPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/komando-pagi"
+            element={
+              <ProtectedRoute>
+                <KomandoPagiPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/trade-journal"
+            element={
+              <ProtectedRoute>
+                <TradeJournalPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/blog" element={isPersonal ? <BlogList /> : <Navigate to="/" replace />} />
+          <Route path="/blog/:slug" element={isPersonal ? <BlogPost /> : <Navigate to="/" replace />} />
+          <Route path="/cv" element={isPersonal ? <CV /> : <Navigate to="/" replace />} />
+          <Route path="*" element={isPersonal ? <HomePage /> : <Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
       <Footer />
       <MobileBottomNav />
     </div>
   )
 }
 
+import IOSInstallPrompt from './components/IOSInstallPrompt'
+
 export default function App() {
-  return <AppShell />
+  return (
+    <>
+      <AppShell />
+      <IOSInstallPrompt />
+    </>
+  )
 }

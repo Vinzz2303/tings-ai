@@ -8,6 +8,7 @@ const PERSONAL_DOMAINS = [
 export const TING_AI_DOMAINS = [
   'tingsai.my.id',
   'www.tingsai.my.id',
+  'app.tingsai.my.id'
 ]
 
 export function isPersonalDomain(): boolean {
@@ -19,13 +20,13 @@ export function isPersonalDomain(): boolean {
     return params.get('personal') === 'true'
   }
 
-  const hostname = window.location.hostname
+  const hostname = window.location.hostname.toLowerCase()
 
-  // If running on a known Ting AI domain → definitely NOT personal
-  if (TING_AI_DOMAINS.includes(hostname)) return false
+  // If running on a known Ting AI domain or hostname contains tingsai → definitely NOT personal
+  if (hostname.includes('tingsai') || hostname.includes('ting-ai') || TING_AI_DOMAINS.includes(hostname)) return false
 
   // If running on the personal portfolio domain → personal
-  if (PERSONAL_DOMAINS.includes(hostname)) return true
+  if (hostname.includes('faturachman') || PERSONAL_DOMAINS.includes(hostname)) return true
 
   // Fallback for localhost / unknown → treat as Ting AI (dev default)
   return false

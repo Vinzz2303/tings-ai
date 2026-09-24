@@ -51,27 +51,42 @@ export async function getFxRate(fromCurrency: string, toCurrency: string): Promi
     return { rate: cached.rate, meta: { source: 'cache', ts: cached.ts } }
   }
 
-  const apiUrl = process.env.FX_API_URL || 'https://api.exchangerate.host/latest'
+  // Primary: frankfurter.app (free, no key, reliable)
+  // Fallback: env-configured URL (e.g. exchangerate-api)
+  const primaryUrl = 'https://api.frankfurter.app/latest'
+  const fallbackUrl = process.env.FX_API_URL || ''
   const apiKey = process.env.FX_API_KEY
+  const timeout = getTimeoutMs()
+
+  // Try primary Frankfurt API first
+  const tryFetch = async (apiUrl: string, useKey: boolean): Promise<number | null> => {
+    const params: Record<string, string> = { base: from, symbols: to }
+    if (useKey && apiKey) params.access_key = apiKey
+    const response = await axios.get(apiUrl, { timeout, params })
+    const rate = Number(response.data?.rates?.[to] || 0)
+    return rate > 0 ? rate : null
+  }
 
   try {
-    const response = await axios.get(apiUrl, {
-      timeout: getTimeoutMs(),
-      params: {
-        base: from,
-        symbols: to,
-        access_key: apiKey || undefined
-      }
-    })
+    let rate: number | null = null
 
-    const rate = Number(response.data?.rates?.[to] || 0)
-    if (rate > 0) {
+    // 1. Try primary (frankfurter.app)
+    try {
+      rate = await tryFetch(primaryUrl, false)
+    } catch {
+      // 2. Try fallback URL if configured
+      if (fallbackUrl) {
+        rate = await tryFetch(fallbackUrl, true)
+      }
+    }
+
+    if (rate !== null) {
       cache.set(key, { rate, ts: now })
       lastKnown.set(key, { rate, ts: now })
       return { rate, meta: { source: 'live', ts: now } }
     }
 
-    throw new Error('Invalid FX payload')
+    throw new Error('Invalid FX payload — rate not found')
   } catch (error) {
     const known = lastKnown.get(key)
     if (known) {

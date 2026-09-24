@@ -680,7 +680,7 @@ const getYahooChartFallback = async (
   source: string
 ): Promise<InstrumentSummary> => {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`
+    const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`
     const response = await axios.get<YahooChartResponse>(url, { timeout: 12000 })
     const result = response.data?.chart?.result?.[0]
     const timestamps = result?.timestamp || []

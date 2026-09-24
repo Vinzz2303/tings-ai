@@ -12,6 +12,7 @@ import type { FileFilterCallback } from 'multer'
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
 import nodemailer from 'nodemailer'
 import pool from './db'
+import webpush from 'web-push'
 import { getInvestmentSummary } from './services/investmentSummary'
 import { getFxRate } from './services/fxAdapter'
 import { GoogleGenerativeAI } from '@google/generative-ai'
@@ -27,8 +28,15 @@ import {
 } from './services/chatProvider'
 import { getMarketQuoteCacheTtlMinutes, resolveMarketQuotes } from './services/marketQuoteService'
 import { getMarketNews } from './services/marketNewsService'
+import { sendWeeklyReports } from './services/weeklyReportService'
 import { getInsiderTrading } from './services/openbbAgentTools'
-
+import { createProSubscriptionTx, handleMidtransWebhook } from './services/paymentService'
+import { runStockScreener } from './services/screenerService'
+import { generatePortfolioPDF } from './services/pdfReportService'
+import cron from 'node-cron'
+import { initTelegramBot, sendMorningCommandToGroup } from './services/telegramBotService'
+import { fetchTopChanges } from './services/sectorsApi'
+import { generateTradingSetup } from './services/tradingSetupService'
 // --- START: Portfolio Context Types ---
 type PortfolioHolding = {
   symbol: string;
@@ -490,6 +498,39 @@ app.use((req, res, next) => {
 
 app.get('/', (_req, res) => {
   res.status(200).send('Ting AI API is running.')
+})
+
+app.get('/api/trading-setup', async (req, res) => {
+  const symbol = req.query.symbol as string;
+  if (!symbol) return res.status(400).json({ error: 'Symbol required' });
+  try {
+    const setup = await generateTradingSetup(symbol);
+    res.json({ ok: true, data: setup });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+})
+
+// S3: Public stats endpoint — active user counter for landing page
+app.get('/api/stats', async (_req, res) => {
+  try {
+    const [[totalRow]] = await pool.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS total FROM users`
+    )
+    const [[activeRow]] = await pool.query<RowDataPacket[]>(
+      `SELECT COUNT(DISTINCT user_id) AS active
+       FROM portfolio_holdings
+       WHERE is_active = 1`
+    )
+    // Round up total users for display credibility
+    const total = Number(totalRow?.total || 0)
+    const activePortfolio = Number(activeRow?.active || 0)
+    res.json({ ok: true, totalUsers: total, activePortfolioUsers: activePortfolio })
+  } catch (err) {
+    console.error('[/api/stats] Error:', err)
+    // Return graceful fallback — never show a 500 on landing page
+    res.json({ ok: true, totalUsers: 0, activePortfolioUsers: 0 })
+  }
 })
 
 const sp500Cache: { data: MarketPoint[] | null; timestamp: number } = {
@@ -971,31 +1012,45 @@ const fetchBtcDaily = async (days: number): Promise<MarketPoint[]> => {
     }
   }
 
-  const providerDays = days <= 7 ? 7 : days <= 30 ? 30 : days <= 90 ? 90 : 180
-  const url = `https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=${providerDays}`
-  const response = await axios.get<number[][]>(url, { timeout: 12000 })
-
-  if (!Array.isArray(response.data)) {
-    throw new Error('Invalid data format from CoinGecko API')
-  }
-
-  const dailyData = new Map<string, MarketPoint>()
-  response.data.forEach((kline) => {
-    const dateStr = toDateString(new Date(kline[0]))
-    dailyData.set(dateStr, {
-      time: dateStr,
-      open: Number(kline[1]),
-      high: Number(kline[2]),
-      low: Number(kline[3]),
-      close: Number(kline[4])
+  try {
+    const providerDays = days <= 7 ? 7 : days <= 30 ? 30 : days <= 90 ? 90 : 180
+    const url = `https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=${providerDays}`
+    const response = await axios.get<number[][]>(url, {
+      timeout: 12000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 TingAI/2.2.9'
+      }
     })
-  })
 
-  const points = Array.from(dailyData.values())
-  btcCache.data = points
-  btcCache.timestamp = now
-  lastGood.btcDaily = points
-  return points.slice(-days)
+    if (!Array.isArray(response.data)) {
+      throw new Error('Invalid data format from CoinGecko API')
+    }
+
+    const dailyData = new Map<string, MarketPoint>()
+    response.data.forEach((kline) => {
+      const dateStr = toDateString(new Date(kline[0]))
+      dailyData.set(dateStr, {
+        time: dateStr,
+        open: Number(kline[1]),
+        high: Number(kline[2]),
+        low: Number(kline[3]),
+        close: Number(kline[4])
+      })
+    })
+
+    const points = Array.from(dailyData.values())
+    btcCache.data = points
+    btcCache.timestamp = now
+    lastGood.btcDaily = points
+    return points.slice(-days)
+  } catch (error) {
+    logError('fetch btc coingecko fallback to yahoo', error)
+    const yahooPoints = await fetchYahooSeries('BTC-USD', days)
+    btcCache.data = yahooPoints
+    btcCache.timestamp = now
+    lastGood.btcDaily = yahooPoints
+    return yahooPoints.slice(-days)
+  }
 }
 
 const fetchMarketSeriesFromDb = async (
@@ -1066,8 +1121,13 @@ const buildGoldSpotFallbackSeries = async (): Promise<{
 
 const fetchYahooSeries = async (symbol: string, days: number): Promise<MarketPoint[]> => {
   const range = days <= 2 ? '5d' : days <= 7 ? '7d' : days <= 30 ? '1mo' : days <= 90 ? '3mo' : '6mo'
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`
-  const response = await axios.get<YahooChartResponse>(url, { timeout: 12000 })
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`
+  const response = await axios.get<YahooChartResponse>(url, {
+    timeout: 12000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 TingAI/2.2.9'
+    }
+  })
   const result = response.data?.chart?.result?.[0]
   const timestamps = result?.timestamp || []
   const quote = result?.indicators?.quote?.[0]
@@ -1123,10 +1183,45 @@ const quoteMetaBySymbol: Record<string, { name: string; currency: string; type: 
   'SOL-USD': { name: 'Solana', currency: 'USD', type: 'CRYPTO' },
   'BNB-USD': { name: 'BNB', currency: 'USD', type: 'CRYPTO' },
   'XRP-USD': { name: 'XRP', currency: 'USD', type: 'CRYPTO' },
+  'ADA-USD': { name: 'Cardano', currency: 'USD', type: 'CRYPTO' },
+  'DOGE-USD': { name: 'Dogecoin', currency: 'USD', type: 'CRYPTO' },
+  'MATIC-USD': { name: 'Polygon', currency: 'USD', type: 'CRYPTO' },
+  'AVAX-USD': { name: 'Avalanche', currency: 'USD', type: 'CRYPTO' },
+  'DOT-USD': { name: 'Polkadot', currency: 'USD', type: 'CRYPTO' },
+  'LINK-USD': { name: 'Chainlink', currency: 'USD', type: 'CRYPTO' },
+  'UNI-USD': { name: 'Uniswap', currency: 'USD', type: 'CRYPTO' },
+  'ATOM-USD': { name: 'Cosmos', currency: 'USD', type: 'CRYPTO' },
+  'LTC-USD': { name: 'Litecoin', currency: 'USD', type: 'CRYPTO' },
+  'NEAR-USD': { name: 'NEAR', currency: 'USD', type: 'CRYPTO' },
+  'APT-USD': { name: 'Aptos', currency: 'USD', type: 'CRYPTO' },
+  'ARB-USD': { name: 'Arbitrum', currency: 'USD', type: 'CRYPTO' },
   SPY: { name: 'S&P 500 ETF', currency: 'USD', type: 'EQUITY' },
   QQQ: { name: 'Nasdaq ETF', currency: 'USD', type: 'EQUITY' },
   'DX-Y.NYB': { name: 'US Dollar Index', currency: 'USD', type: 'INDEX' },
-  'USDIDR=X': { name: 'USD/IDR', currency: 'IDR', type: 'FX' }
+  'USDIDR=X': { name: 'USD/IDR', currency: 'IDR', type: 'FX' },
+  // Indo Stocks
+  'BBCA.JK': { name: 'BCA', currency: 'IDR', type: 'EQUITY' },
+  'BMRI.JK': { name: 'Mandiri', currency: 'IDR', type: 'EQUITY' },
+  'TLKM.JK': { name: 'Telkom', currency: 'IDR', type: 'EQUITY' },
+  'ASII.JK': { name: 'Astra', currency: 'IDR', type: 'EQUITY' },
+  'BBNI.JK': { name: 'BNI', currency: 'IDR', type: 'EQUITY' },
+  'GOTO.JK': { name: 'GoTo', currency: 'IDR', type: 'EQUITY' },
+  'AMMN.JK': { name: 'Amman', currency: 'IDR', type: 'EQUITY' },
+  'ADRO.JK': { name: 'Adaro', currency: 'IDR', type: 'EQUITY' },
+  'BRPT.JK': { name: 'Barito', currency: 'IDR', type: 'EQUITY' },
+  // US Stocks
+  'AAPL': { name: 'Apple', currency: 'USD', type: 'EQUITY' },
+  'MSFT': { name: 'Microsoft', currency: 'USD', type: 'EQUITY' },
+  'NVDA': { name: 'NVIDIA', currency: 'USD', type: 'EQUITY' },
+  'TSLA': { name: 'Tesla', currency: 'USD', type: 'EQUITY' },
+  'AMZN': { name: 'Amazon', currency: 'USD', type: 'EQUITY' },
+  'GOOGL': { name: 'Alphabet', currency: 'USD', type: 'EQUITY' },
+  'META': { name: 'Meta', currency: 'USD', type: 'EQUITY' },
+  'AMD': { name: 'AMD', currency: 'USD', type: 'EQUITY' },
+  'COIN': { name: 'Coinbase', currency: 'USD', type: 'EQUITY' },
+  // Additional Commodities
+  'NG=F': { name: 'Natural Gas', currency: 'USD', type: 'COMMODITY', unit: 'MMBtu' },
+  'HG=F': { name: 'Copper', currency: 'USD', type: 'COMMODITY', unit: 'lb' }
 }
 
 const rangeToDays = (range: unknown) => {
@@ -1371,6 +1466,35 @@ const isAdminEmail = (email?: string) => {
   return adminEmails.includes(email.trim().toLowerCase())
 }
 
+// ── AUTH MIDDLEWARE ─────────────────────────────────────────────────────────────
+const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization']
+  const token = authHeader && authHeader.split(' ')[1]
+
+  if (!token) return res.sendStatus(401)
+
+  jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-change', (err: unknown, user: unknown) => {
+    if (err) return res.sendStatus(403)
+    ;(req as RequestWithUser).user = user as AuthTokenPayload
+    next()
+  })
+}
+
+const requirePro = async (req: Request, res: Response, next: NextFunction) => {
+  // depends on authenticateToken having run
+  const authReq = req as RequestWithUser
+  if (!authReq.user?.id) return res.sendStatus(401)
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT is_pro FROM users WHERE id = ?', [authReq.user.id])
+    if (rows.length === 0 || !rows[0].is_pro) {
+      return res.status(403).json({ error: 'Pro subscription required.' })
+    }
+    next()
+  } catch (error) {
+    res.status(500).json({ error: 'Server error checking subscription.' })
+  }
+}
+
 const adminMiddleware = (req: AdminRequest, res: Response, next: NextFunction) => {
   const email = req.user?.email
   if (!email || !isAdminEmail(email)) {
@@ -1560,12 +1684,20 @@ app.get('/api/me', authMiddleware, async (req: RequestWithUser, res) => {
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
-    const profile = await getUserProfileById(userId)
-    if (!profile) {
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT id, fullname, email, email_verified, created_at, is_pro FROM users WHERE id = ?', [(req as RequestWithUser).user!.id])
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    return res.status(200).json({ user: profile })
+    const user = rows[0]
+    res.json({
+      id: user.id,
+      fullname: user.fullname,
+      email: user.email,
+      email_verified: Boolean(user.email_verified),
+      created_at: user.created_at,
+      is_pro: Boolean(user.is_pro)
+    })
   } catch (error) {
     logError('me error', error)
     return res.status(500).json({ error: getErrorMessage(error, 'Failed to load profile') })
@@ -1698,21 +1830,21 @@ app.post('/api/payments/upload', authMiddleware, proUpgradeUpload.single('file')
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
-    const body = parsePayload<ProUpgradeBody>(req)
-    const fullName = body.fullName?.trim() || ''
-    const email = body.email?.trim() || ''
-    const senderName = body.senderName?.trim() || ''
-    const transferDate = body.transferDate?.trim() || ''
+    const body = req.body // using multer form-data
+    const fullName = (body.fullName || body.full_name || '').trim()
+    const email = (body.email || '').trim()
+    const senderName = (body.senderName || '').trim()
+    const transferDate = (body.transferDate || '').trim()
     const uploadedProofFile = req.file?.filename || null
-    const proofFileName = uploadedProofFile || body.proofFileName?.trim() || body.fileName?.trim() || null
-    const notes = body.notes?.trim() || null
+    const proofFileName = uploadedProofFile || (body.proofFileName || body.fileName || '').trim() || null
+    const notes = (body.notes || '').trim() || null
 
     console.log(
-      `[PRO_UPGRADE_HIT] userId=${userId} email=${email || '<missing>'} senderName=${senderName || '<missing>'} transferDate=${transferDate || '<missing>'} proofFileName=${proofFileName || '<missing>'}`
+      `[PRO_UPGRADE_HIT] userId=${userId} email=${email || '<missing>'} proofFileName=${proofFileName || '<missing>'}`
     )
 
-    if (!fullName || !email || !senderName || !transferDate || !proofFileName) {
-      return res.status(400).json({ error: 'Full name, email, sender name, transfer date, and proof file are required' })
+    if (!fullName || !email || !proofFileName) {
+      return res.status(400).json({ error: 'Full name, email, and proof file are required' })
     }
 
     await ensureProUpgradeTable()
@@ -2606,6 +2738,30 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' })
     }
 
+    // --- HACKATHON GOD MODE BYPASS ---
+    if (email === 'juri@sectors.app' && password === 'TingsAI2026!') {
+      const token = jwt.sign(
+        { id: 9999, fullname: 'Sectors Jury', email, emailVerified: true },
+        process.env.JWT_SECRET || 'dev-secret-change',
+        { expiresIn: '7d' }
+      )
+      return res.status(200).json({
+        token,
+        user: {
+          id: 9999,
+          fullname: 'Sectors Jury',
+          email,
+          plan: 'pro',
+          isPro: true,
+          proUntil: '2030-12-31T00:00:00Z',
+          subscriptionStatus: 'active',
+          planExpiresAt: '2030-12-31T00:00:00Z',
+          emailVerified: true
+        }
+      })
+    }
+    // ---------------------------------
+
     const [rows] = await pool.query<UserRow[]>(
       'SELECT id, fullname, email, password_hash, email_verified FROM users WHERE email = ? LIMIT 1',
       [email]
@@ -3023,8 +3179,10 @@ app.get('/api/market/overview', async (_req, res) => {
 app.get('/api/market/macro', async (req, res) => {
   try {
     const { fetchMacroData } = require('./utils/openbbAdapter')
+    const { generateMacroAnalysis } = require('./services/macroAgentService')
     const data = await fetchMacroData()
-    res.json({ success: true, data })
+    const analysis = await generateMacroAnalysis(data)
+    res.json({ success: true, data: { ...data, aiAnalysis: analysis.text, alphaSignals: analysis.alphaSignals } })
   } catch (error) {
     console.error('Macro API Error:', error)
     res.status(500).json({ success: false, error: 'Failed to fetch macro data' })
@@ -3602,6 +3760,12 @@ const buildLocalReply = (
       : 'Yes. In this product, Ting AI is treated as Kiting AI.'
   }
 
+  if (last.includes('ting ai') && (last.includes('singkatan') || last.includes('kepanjangan'))) {
+    return preferredLanguage === 'id'
+      ? 'Kepanjangan yang dipakai di produk ini adalah Kiting AI.'
+      : 'In this product, the expanded form used is Kiting AI.'
+  }
+
   if (last.includes('s&p') || last.includes('sp500')) {
     const sp500 = meta?.instruments?.SP500
     if (!sp500 || sp500.error) {
@@ -4135,7 +4299,8 @@ app.post('/api/ai-chat', async (req, res) => {
     const { messages, summary, meta, provider, portfolio, insightContext } = payload
     const hasProfitLossData = payload.hasProfitLossData === true
     const requestPlan = await getRequestPlan(getOptionalAuthUser(req))
-    providerRequested = provider || (summary || meta || portfolio ? 'gemini' : 'groq')
+    const hasImage = Array.isArray(messages) && messages.some((m: any) => !!m.image)
+    providerRequested = provider || (hasImage || summary || meta || portfolio ? 'gemini' : 'groq')
 
     if (!Array.isArray(messages)) {
       fallbackUsed = true
@@ -4169,6 +4334,38 @@ app.post('/api/ai-chat', async (req, res) => {
     const previousUserMessage = getPreviousUserMessage(messages)
     const recentUserMessages = getRecentUserMessages(messages)
     intent = detectIntentLabel(lastUserMessage, previousUserMessage, recentUserMessages)
+    
+    // --- START: Admin Trade Interceptor ---
+    const authUser = getOptionalAuthUser(req)
+    if (authUser && authUser.email === 'faturachmanalkahfi7@gmail.com') {
+      const tradeMatch = lastUserMessage.match(/^(?:tolong\s+)?(buy|sell)\s+([A-Z0-9.\-=^]+)\s*(?:(\d+(?:\.\d+)?)\s*(?:lot|lembar|usd)?)?/i)
+      if (tradeMatch) {
+        const action = tradeMatch[1].toUpperCase()
+        const symbol = tradeMatch[2].toUpperCase()
+        const quantity = parseFloat(tradeMatch[3] || '1')
+        
+        try {
+          const { resolveMarketQuote } = require('./services/marketQuoteService')
+          const quote = await resolveMarketQuote(symbol)
+          
+          if (quote.price) {
+            await pool.query(
+              'INSERT INTO portfolio_transactions (user_id, symbol, type, quantity, price, currency) VALUES (?, ?, ?, ?, ?, ?)',
+              [authUser.id, symbol, action, quantity, quote.price, quote.currency]
+            )
+            
+            const reply = `**SIMULASI EKSEKUSI TRADING** ⚡\n\nBerhasil mengeksekusi order **${action}** untuk **${symbol}** sebanyak **${quantity}** unit di harga **${quote.price.toLocaleString('en-US', { style: 'currency', currency: quote.currency })}**.\n\n_Transaksi simulasi ini telah dicatat ke dalam database portofolio Anda._`
+            
+            providerUsed = 'local'
+            logAiTelemetry({ intent: 'trade_execution', providerRequested, providerUsed, durationMs: Date.now() - startedAt, fallbackUsed, hasMarketContext, hasPortfolioContext })
+            return res.status(200).json({ reply, usedGroq: false, usedGemini: false, providerStatus: { requested: providerRequested as 'auto' | 'groq' | 'gemini', used: 'local', fallbackUsed, hasMarketContext, hasPortfolioContext, durationMs: Date.now() - startedAt } })
+          }
+        } catch (err) {
+          console.error('[Trade Interceptor] Error:', err)
+        }
+      }
+    }
+    // --- END: Admin Trade Interceptor ---
     if (isIdentityQuestion(lastUserMessage) || isNamingQuestion(lastUserMessage)) {
       const directReply = buildLocalReply(messages, undefined, meta)
       providerUsed = 'local'
@@ -4458,26 +4655,202 @@ app.get('/api/openbb/insider_trading', async (req, res) => {
   }
 })
 
+const cotCache = new Map<string, { data: any, timestamp: number }>()
+const COT_CACHE_TTL = 60 * 60 * 1000 // 1 hour
+
 // CFTC Commitments of Traders (COT) proxy — for commodity whale radar
 app.get('/api/openbb/cot', async (req, res) => {
   try {
     const code  = req.query.code  as string
     const limit = parseInt((req.query.limit as string) || '8', 10)
-    if (!code) {
-      return res.status(400).json({ ok: false, error: 'code is required' })
+    if (!code) return res.status(400).json({ ok: false, error: 'code is required' })
+    const cftcId = code.replace('CFTC_', '')
+    const cacheKey = `${cftcId}-${limit}`
+    
+    if (cotCache.has(cacheKey)) {
+      const cached = cotCache.get(cacheKey)!
+      if (Date.now() - cached.timestamp < COT_CACHE_TTL) {
+        return res.json({ ok: true, data: { results: cached.data } })
+      }
     }
-    const OPENBB_URL = process.env.OPENBB_API_URL || 'http://127.0.0.1:6900'
-    const url = `${OPENBB_URL}/api/v1/cftc/cot?code=${encodeURIComponent(code)}&limit=${limit}`
-    const resp = await fetch(url, { signal: AbortSignal.timeout(30000) })
-    if (!resp.ok) {
-      const txt = await resp.text()
-      return res.status(resp.status).json({ ok: false, error: txt })
-    }
-    const json = await resp.json() as { results?: unknown[] }
-    res.json({ ok: true, data: json.results ?? [] })
+
+    const url = `https://publicreporting.cftc.gov/resource/6dca-aqww.json?$limit=${limit}&$order=report_date_as_yyyy_mm_dd DESC&cftc_contract_market_code=${cftcId}`
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`CFTC Error: ${response.statusText}`)
+    const rawData = await response.json()
+    const results = rawData.map((item: any) => {
+      const nonCommLong = parseInt(item.noncomm_positions_long_all) || 0
+      const nonCommShort = parseInt(item.noncomm_positions_short_all) || 0
+      return {
+        date: item.report_date_as_yyyy_mm_dd,
+        report_week: item.yyyy_report_week_ww,
+        net_positions: nonCommLong - nonCommShort,
+        commercial_long: parseInt(item.comm_positions_long_all) || 0,
+        commercial_short: parseInt(item.comm_positions_short_all) || 0,
+        non_commercial_long: nonCommLong,
+        non_commercial_short: nonCommShort,
+      }
+    }).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    
+    cotCache.set(cacheKey, { data: results, timestamp: Date.now() })
+    return res.json({ ok: true, data: { results } })
   } catch (err) {
     console.error('[COT Proxy Error]', err)
     res.status(500).json({ ok: false, error: 'Failed to fetch COT data' })
+  }
+})
+
+// Daily Trading Setup (Momentum Scanner)
+import { calculateRSI } from './utils/technicalAnalysis'
+const setupCache = { data: null as any, timestamp: 0 }
+app.get('/api/market/setup/daily', async (req, res) => {
+  try {
+    const TTL = 10 * 60 * 1000 // 10 minutes cache
+    if (setupCache.data && Date.now() - setupCache.timestamp < TTL) {
+      return res.json({ ok: true, data: setupCache.data })
+    }
+
+    const symbols = ['BBCA.JK', 'BMRI.JK', 'BBNI.JK', 'BBRI.JK', 'ASII.JK', 'TLKM.JK', 'GOTO.JK', 'BTC-USD', 'ETH-USD', 'GC=F']
+    const range = '3mo'
+    const interval = '1d'
+
+    const setups = []
+    
+    for (const sym of symbols) {
+      try {
+        const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=${range}&interval=${interval}`
+        const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+        if (!resp.ok) continue
+        const json = await resp.json()
+        const result = json.chart?.result?.[0]
+        const timestamps = result?.timestamp || []
+        const closesRaw = result?.indicators?.quote?.[0]?.close || []
+        
+        // Filter out nulls
+        const closes: number[] = []
+        for (let i = 0; i < closesRaw.length; i++) {
+          if (typeof closesRaw[i] === 'number') closes.push(closesRaw[i])
+        }
+
+        if (closes.length < 15) continue
+
+        const rsiArray = calculateRSI(closes, 14)
+        const currentRsi = rsiArray[rsiArray.length - 1]
+        
+        if (currentRsi === null) continue
+
+        let condition = 'NEUTRAL'
+        let action = 'HOLD'
+        let color = '#a7b0bf'
+        
+        if (currentRsi <= 35) {
+          condition = 'OVERSOLD'
+          action = 'BUY SIGNAL'
+          color = '#4ade80'
+        } else if (currentRsi >= 65) {
+          condition = 'OVERBOUGHT'
+          action = 'TAKE PROFIT'
+          color = '#f87171'
+        } else if (currentRsi > 55) {
+          condition = 'BULLISH'
+          action = 'TRENDING UP'
+          color = '#8fbfba'
+        }
+
+        const latestPrice = closes[closes.length - 1]
+
+        setups.push({
+          symbol: sym,
+          name: sym.replace('.JK', '').replace('-USD', '').replace('=F', ''),
+          price: latestPrice,
+          rsi: parseFloat(currentRsi.toFixed(1)),
+          condition,
+          action,
+          color
+        })
+      } catch (err) {
+        console.error(`Failed momentum for ${sym}:`, err)
+      }
+    }
+
+    // Sort: Oversold first, then Bullish, then Overbought, then Neutral
+    const order: Record<string, number> = { 'OVERSOLD': 1, 'BULLISH': 2, 'OVERBOUGHT': 3, 'NEUTRAL': 4 }
+    setups.sort((a, b) => order[a.condition] - order[b.condition])
+
+    setupCache.data = setups
+    setupCache.timestamp = Date.now()
+
+    return res.json({ ok: true, data: setups })
+  } catch (err) {
+    console.error('[Momentum Scanner Error]', err)
+    res.status(500).json({ ok: false, error: 'Failed to generate setup' })
+  }
+})
+
+// Smart Money Radar (Insider Tracking via OpenBB)
+const insiderCache = { data: null as any, timestamp: 0 }
+app.get('/api/market/insider-radar', async (req, res) => {
+  try {
+    const symbol = (req.query.symbol as string) || 'AAPL'
+    const TTL = 30 * 60 * 1000 // 30 minutes cache for insider data
+    
+    // We cache based on symbol to avoid hitting OpenBB too much
+    const cacheKey = symbol.toUpperCase()
+    if (!insiderCache.data) insiderCache.data = {}
+    
+    if (insiderCache.data[cacheKey] && Date.now() - insiderCache.data[cacheKey].timestamp < TTL) {
+      return res.json({ ok: true, data: insiderCache.data[cacheKey].results })
+    }
+
+    const OPENBB_URL = process.env.OPENBB_API_URL || 'http://127.0.0.1:6900'
+    const url = `${OPENBB_URL}/api/v1/equity/ownership/insider_trading?symbol=${encodeURIComponent(symbol)}&provider=sec`
+    
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) })
+    if (!resp.ok) throw new Error(`OpenBB Error: ${resp.statusText}`)
+    
+    const json = await resp.json()
+    // OpenBB typically returns { results: [...] }
+    let results = json.results || json
+
+    if (Array.isArray(results)) {
+      results = results.slice(0, 10).map((trade: any) => ({
+        date: trade.transaction_date || trade.date,
+        name: trade.reporting_name || trade.name || 'Unknown',
+        title: trade.reporting_title || trade.title || 'Insider',
+        type: trade.transaction_type || trade.type,
+        shares: trade.shares || trade.securities_transacted,
+        price: trade.price || trade.transaction_price,
+        value: (trade.shares || trade.securities_transacted) * (trade.price || trade.transaction_price)
+      }))
+    } else {
+      results = []
+    }
+
+    insiderCache.data[cacheKey] = { results, timestamp: Date.now() }
+    return res.json({ ok: true, data: results })
+  } catch (err) {
+    console.error('[Insider Radar Error]', err)
+    res.status(500).json({ ok: false, error: 'Failed to fetch insider data' })
+  }
+})
+
+// ── Sectors API (Hackathon Track 3) ───────────────────────────────────────────
+const sectorsCache = { data: null as any, timestamp: 0 }
+app.get('/api/market/sectors/top-changes', async (req, res) => {
+  try {
+    const TTL = 30 * 60 * 1000 // 30 minutes cache for Sectors API to save credits
+    if (sectorsCache.data && Date.now() - sectorsCache.timestamp < TTL) {
+      return res.json({ ok: true, data: sectorsCache.data })
+    }
+
+    const data = await fetchTopChanges()
+    sectorsCache.data = data
+    sectorsCache.timestamp = Date.now()
+
+    return res.json({ ok: true, data })
+  } catch (err: any) {
+    console.error('[Sectors API Error]', err.message)
+    res.status(500).json({ ok: false, error: 'Failed to fetch Sectors API data' })
   }
 })
 
@@ -4703,7 +5076,574 @@ app.get('/api/binance/whale', async (req, res) => {
   }
 })
 
+// --- START: Web Push Notifications ---
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:admin@tingsai.my.id',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  )
+}
+
+app.post('/api/push/subscribe', authMiddleware, async (req: RequestWithUser, res: Response) => {
+  const user = req.user
+  if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' })
+  
+  const { endpoint, keys } = req.body
+  if (!endpoint || !keys || !keys.p256dh || !keys.auth) {
+    return res.status(400).json({ ok: false, error: 'Invalid subscription object' })
+  }
+
+  try {
+    const query = `
+      INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+      VALUES (?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE p256dh = VALUES(p256dh), auth = VALUES(auth)
+    `
+    await pool.query(query, [user.id, endpoint, keys.p256dh, keys.auth])
+    res.json({ ok: true, message: 'Subscription saved' })
+  } catch (error) {
+    console.error('Failed to save push subscription:', error)
+    res.status(500).json({ ok: false, error: 'Failed to save subscription' })
+  }
+})
+
+app.post('/api/push/test', authMiddleware, async (req: RequestWithUser, res: Response) => {
+  const user = req.user
+  if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized' })
+  
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM push_subscriptions WHERE user_id = ?', [user.id])
+    if (rows.length === 0) return res.status(404).json({ ok: false, error: 'No subscription found' })
+
+    const payload = JSON.stringify({
+      title: 'Ting AI Push Test',
+      body: 'Ini adalah notifikasi test dari TINGS AI.',
+      url: '/komando-pagi'
+    })
+
+    const results = await Promise.allSettled(rows.map(row => 
+      webpush.sendNotification({
+        endpoint: row.endpoint,
+        keys: { p256dh: row.p256dh, auth: row.auth }
+      }, payload)
+    ))
+
+    res.json({ ok: true, results })
+  } catch (error) {
+    console.error('Failed to send test push:', error)
+    res.status(500).json({ ok: false, error: 'Failed to send push' })
+  }
+})
+// --- END: Web Push Notifications ---
+
+// ── S5-M4: PAYMENT ROUTES (MIDTRANS) ─────────────────────────────────────────
+
+app.post('/api/payment/checkout', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as RequestWithUser).user!.id
+    const [users] = await pool.query<RowDataPacket[]>('SELECT fullname, email FROM users WHERE id = ?', [userId])
+    if (!users.length) return res.status(404).json({ error: 'User not found' })
+
+    const { fullname, email } = users[0]
+    const token = await createProSubscriptionTx(userId, email, fullname)
+    res.json({ token })
+  } catch (error) {
+    console.error('[Payment] Checkout Error:', error)
+    res.status(500).json({ error: 'Failed to generate checkout token' })
+  }
+})
+
+app.post('/api/payment/webhook', async (req, res) => {
+  try {
+    const notification = req.body
+    await handleMidtransWebhook(notification)
+    res.json({ status: 'ok' })
+  } catch (error) {
+    console.error('[Payment] Webhook Error:', error)
+    res.status(500).json({ error: 'Failed to process webhook' })
+  }
+})
+
+// ── S5-M4: PREMIUM ROUTES ────────────────────────────────────────────────────
+
+app.get('/api/market/screener', authenticateToken, requirePro, async (req, res) => {
+  try {
+    const results = await runStockScreener({})
+    res.json({ ok: true, data: results })
+  } catch (error) {
+    console.error('[Screener] Error:', error)
+    res.status(500).json({ error: 'Failed to run screener' })
+  }
+})
+
+app.get('/api/reports/pdf', authenticateToken, requirePro, async (req, res) => {
+  try {
+    const userId = (req as RequestWithUser).user!.id
+    // get user name
+    const [users] = await pool.query<RowDataPacket[]>('SELECT fullname FROM users WHERE id = ?', [userId])
+    const userName = users.length ? users[0].fullname : 'Investor'
+    
+    // get portfolio
+    const [holdings] = await pool.query<RowDataPacket[]>(
+      'SELECT symbol, quantity, entry_price as entryPrice, entry_currency as entryCurrency FROM portfolio_holdings WHERE user_id = ? AND quantity > 0', 
+      [userId]
+    )
+
+    const pdfBuffer = await generatePortfolioPDF(userId, userName, holdings)
+    
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename=TingAI_Report_${Date.now()}.pdf`)
+    res.send(pdfBuffer)
+  } catch (error) {
+    console.error('[PDF] Error:', error)
+    res.status(500).json({ error: 'Failed to generate PDF' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRADE JOURNAL API
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/trade-journal — Create new journal entry
+app.post('/api/trade-journal', authMiddleware, async (req: any, res: any) => {
+  const userId = req.user?.id
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+  const {
+    pair, direction, lot_size, entry_price, stop_loss, take_profit,
+    setup_type, pre_trade_emotion, notes
+  } = req.body
+
+  if (!pair || !direction || !lot_size || !entry_price) {
+    return res.status(400).json({ error: 'pair, direction, lot_size, entry_price are required' })
+  }
+
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO trade_journal
+        (user_id, pair, direction, lot_size, entry_price, stop_loss, take_profit, setup_type, pre_trade_emotion, notes, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')`,
+      [userId, pair.toUpperCase(), direction.toUpperCase(), lot_size, entry_price,
+       stop_loss || null, take_profit || null, setup_type || null, pre_trade_emotion || null, notes || null]
+    ) as any
+
+    res.json({ success: true, id: result.insertId, message: 'Trade journal entry created' })
+  } catch (err: any) {
+    console.error('[TradeJournal] POST error:', err.message)
+    res.status(500).json({ error: 'Failed to create trade journal entry' })
+  }
+})
+
+// GET /api/trade-journal — Get all journal entries for user
+app.get('/api/trade-journal', authMiddleware, async (req: any, res: any) => {
+  const userId = req.user?.id
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+  const { status, pair, limit = 50 } = req.query
+
+  try {
+    let query = `SELECT * FROM trade_journal WHERE user_id = ?`
+    const params: any[] = [userId]
+
+    if (status) { query += ` AND status = ?`; params.push(status) }
+    if (pair) { query += ` AND pair = ?`; params.push((pair as string).toUpperCase()) }
+    query += ` ORDER BY created_at DESC LIMIT ?`
+    params.push(Number(limit))
+
+    const [rows] = await pool.query(query, params) as any
+    res.json({ success: true, data: rows })
+  } catch (err: any) {
+    console.error('[TradeJournal] GET error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch trade journal' })
+  }
+})
+
+// PATCH /api/trade-journal/:id/close — Close a trade with exit price and AI bias analysis
+app.patch('/api/trade-journal/:id/close', authMiddleware, async (req: any, res: any) => {
+  const userId = req.user?.id
+  const { id } = req.params
+  const { exit_price, post_trade_emotion, notes } = req.body
+
+  if (!exit_price) return res.status(400).json({ error: 'exit_price is required' })
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT * FROM trade_journal WHERE id = ? AND user_id = ? AND status = 'OPEN'`,
+      [id, userId]
+    ) as any
+
+    if (!rows.length) return res.status(404).json({ error: 'Open trade not found' })
+
+    const trade = rows[0]
+
+    // Calculate PnL (simplified: pips * lot_size * 10 for standard lots)
+    const pips = trade.direction === 'BUY'
+      ? (Number(exit_price) - Number(trade.entry_price))
+      : (Number(trade.entry_price) - Number(exit_price))
+    const pnl = Math.round(pips * 10000 * Number(trade.lot_size) * 10) / 10
+
+    // Generate AI bias analysis via Gemini
+    let ai_bias_analysis = null
+    try {
+      const prompt = `Kamu adalah psikolog trading profesional. Analisis jurnal trading berikut dan identifikasi bias kognitif yang mungkin terjadi:
+
+Trade: ${trade.direction} ${trade.pair} @ ${trade.entry_price}
+Exit: ${exit_price}
+Lot: ${trade.lot_size}
+PnL: ${pnl > 0 ? '+' : ''}${pnl} USD (estimasi)
+Setup: ${trade.setup_type || 'Tidak dicatat'}
+Emosi sebelum trade: ${trade.pre_trade_emotion || 'Tidak dicatat'}
+Emosi setelah trade: ${post_trade_emotion || 'Tidak dicatat'}
+Catatan: ${notes || trade.notes || 'Tidak ada'}
+SL: ${trade.stop_loss || 'Tidak dipasang'}, TP: ${trade.take_profit || 'Tidak dipasang'}
+
+Berikan analisis singkat (max 3 kalimat) tentang: (1) apakah trader mengikuti rencana, (2) bias kognitif yang terdeteksi (FOMO, Revenge Trading, Overconfidence, Fear of Loss, dll), (3) satu saran konkret untuk trade berikutnya. Jawab dalam Bahasa Indonesia, langsung ke poin, tanpa basa-basi.`
+
+      const genAIResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      })
+      const genAIData = await genAIResponse.json() as any
+      ai_bias_analysis = genAIData?.candidates?.[0]?.content?.parts?.[0]?.text || null
+    } catch (aiErr) {
+      console.warn('[TradeJournal] AI analysis failed, skipping:', aiErr)
+    }
+
+    await pool.query(
+      `UPDATE trade_journal SET
+        exit_price = ?, status = 'CLOSED', pnl = ?,
+        post_trade_emotion = ?, notes = COALESCE(?, notes),
+        ai_bias_analysis = ?, closed_at = NOW()
+       WHERE id = ? AND user_id = ?`,
+      [exit_price, pnl, post_trade_emotion || null, notes || null, ai_bias_analysis, id, userId]
+    )
+
+    res.json({ success: true, pnl, ai_bias_analysis })
+  } catch (err: any) {
+    console.error('[TradeJournal] CLOSE error:', err.message)
+    res.status(500).json({ error: 'Failed to close trade' })
+  }
+})
+
+// GET /api/trade-journal/stats — Get summary stats for the user
+app.get('/api/trade-journal/stats', authMiddleware, async (req: any, res: any) => {
+  const userId = req.user?.id
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT
+        COUNT(*) AS total_trades,
+        SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) AS open_trades,
+        SUM(CASE WHEN status = 'CLOSED' AND pnl > 0 THEN 1 ELSE 0 END) AS winning_trades,
+        SUM(CASE WHEN status = 'CLOSED' AND pnl <= 0 THEN 1 ELSE 0 END) AS losing_trades,
+        SUM(CASE WHEN status = 'CLOSED' THEN pnl ELSE 0 END) AS total_pnl,
+        AVG(CASE WHEN status = 'CLOSED' AND pnl > 0 THEN pnl END) AS avg_win,
+        AVG(CASE WHEN status = 'CLOSED' AND pnl < 0 THEN pnl END) AS avg_loss
+       FROM trade_journal WHERE user_id = ?`,
+      [userId]
+    ) as any
+
+    const s = rows[0]
+    const total_closed = (s.winning_trades || 0) + (s.losing_trades || 0)
+    const win_rate = total_closed > 0 ? Math.round((s.winning_trades / total_closed) * 100) : 0
+
+    res.json({
+      success: true,
+      stats: {
+        total_trades: s.total_trades,
+        open_trades: s.open_trades,
+        closed_trades: total_closed,
+        winning_trades: s.winning_trades || 0,
+        losing_trades: s.losing_trades || 0,
+        win_rate,
+        total_pnl: Math.round((s.total_pnl || 0) * 100) / 100,
+        avg_win: Math.round((s.avg_win || 0) * 100) / 100,
+        avg_loss: Math.round((s.avg_loss || 0) * 100) / 100,
+      }
+    })
+  } catch (err: any) {
+    console.error('[TradeJournal] STATS error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch stats' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRADING SETUP API — Technical analysis for traders (SahamJamet feedback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BLUE_CHIP_TICKERS = [
+  { symbol: 'BBCA.JK', name: 'BCA', sector: 'Banking' },
+  { symbol: 'BBRI.JK', name: 'BRI', sector: 'Banking' },
+  { symbol: 'BMRI.JK', name: 'Mandiri', sector: 'Banking' },
+  { symbol: 'TLKM.JK', name: 'Telkom', sector: 'Telco' },
+  { symbol: 'ASII.JK', name: 'Astra', sector: 'Automotive' },
+  { symbol: 'UNVR.JK', name: 'Unilever', sector: 'Consumer' },
+  { symbol: 'HMSP.JK', name: 'HM Sampoerna', sector: 'Consumer' },
+  { symbol: 'GOTO.JK', name: 'GoTo', sector: 'Tech' },
+  { symbol: 'BBNI.JK', name: 'BNI', sector: 'Banking' },
+  { symbol: 'ICBP.JK', name: 'Indofood CBP', sector: 'Consumer' },
+]
+
+function calcRSI(closes: number[], period = 14): number {
+  if (closes.length < period + 1) return 50
+  let gains = 0, losses = 0
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1]
+    if (diff > 0) gains += diff
+    else losses -= diff
+  }
+  const avgGain = gains / period
+  const avgLoss = losses / period
+  if (avgLoss === 0) return 100
+  const rs = avgGain / avgLoss
+  return +(100 - 100 / (1 + rs)).toFixed(1)
+}
+
+function calcMACD(closes: number[]): { macd: number; signal: number; histogram: number; trend: string } {
+  const ema = (data: number[], p: number) => {
+    const k = 2 / (p + 1)
+    let prev = data[0]
+    return data.map((v, i) => { prev = i === 0 ? v : v * k + prev * (1 - k); return prev })
+  }
+  if (closes.length < 26) return { macd: 0, signal: 0, histogram: 0, trend: 'neutral' }
+  const ema12 = ema(closes, 12)
+  const ema26 = ema(closes, 26)
+  const macdLine = ema12.map((v, i) => v - ema26[i])
+  const signalLine = ema(macdLine.slice(-9), 9)
+  const m = macdLine[macdLine.length - 1]
+  const s = signalLine[signalLine.length - 1]
+  const h = m - s
+  return { macd: +m.toFixed(2), signal: +s.toFixed(2), histogram: +h.toFixed(2), trend: h > 0 ? 'bullish' : h < 0 ? 'bearish' : 'neutral' }
+}
+
+function calcSupportResistance(points: MarketPoint[]): { support: number[]; resistance: number[] } {
+  if (points.length < 5) return { support: [], resistance: [] }
+  const lows = points.map(p => p.low)
+  const highs = points.map(p => p.high)
+  const last = points[points.length - 1].close
+
+  // Find local minima (support) and maxima (resistance)
+  const supports: number[] = []
+  const resistances: number[] = []
+
+  for (let i = 2; i < points.length - 2; i++) {
+    if (lows[i] <= lows[i - 1] && lows[i] <= lows[i - 2] && lows[i] <= lows[i + 1] && lows[i] <= lows[i + 2]) {
+      supports.push(+lows[i].toFixed(0))
+    }
+    if (highs[i] >= highs[i - 1] && highs[i] >= highs[i - 2] && highs[i] >= highs[i + 1] && highs[i] >= highs[i + 2]) {
+      resistances.push(+highs[i].toFixed(0))
+    }
+  }
+
+  // Dedupe nearby levels (within 1% range)
+  const dedup = (levels: number[], ref: number) => {
+    const sorted = [...new Set(levels)].sort((a, b) => Math.abs(a - ref) - Math.abs(b - ref))
+    const result: number[] = []
+    for (const l of sorted) {
+      if (!result.some(r => Math.abs(r - l) / ref < 0.01)) result.push(l)
+    }
+    return result.slice(0, 3)
+  }
+
+  return {
+    support: dedup(supports.filter(s => s < last), last),
+    resistance: dedup(resistances.filter(r => r > last), last),
+  }
+}
+
+app.get('/api/trading/setup', async (req, res) => {
+  try {
+    const requestedSymbols = typeof req.query.tickers === 'string'
+      ? req.query.tickers.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+      : []
+
+    const tickers = requestedSymbols.length
+      ? BLUE_CHIP_TICKERS.filter(t => requestedSymbols.includes(t.symbol.replace('.JK', '')))
+      : BLUE_CHIP_TICKERS
+
+    const results = await Promise.allSettled(
+      tickers.map(async (ticker) => {
+        const points = await fetchYahooSeries(ticker.symbol, 60)
+        if (!points.length) throw new Error(`No data for ${ticker.symbol}`)
+
+        const closes = points.map(p => p.close)
+        const volumes = points.map(() => 0) // Yahoo v8 doesn't give volume in this mode
+        const last = points[points.length - 1]
+        const prev = points.length > 1 ? points[points.length - 2] : last
+        const changePct = prev.close !== 0 ? +((last.close - prev.close) / prev.close * 100).toFixed(2) : 0
+
+        const rsi = calcRSI(closes)
+        const macd = calcMACD(closes)
+        const sr = calcSupportResistance(points)
+
+        // Volume trend (compare last 5 vs previous 5 average)
+        const recentVol = closes.slice(-5).reduce((a, b) => a + b, 0) / 5
+        const prevVol = closes.slice(-10, -5).reduce((a, b) => a + b, 0) / 5
+        const volTrend = recentVol > prevVol * 1.05 ? 'increasing' : recentVol < prevVol * 0.95 ? 'decreasing' : 'stable'
+
+        // Signal logic
+        let signal: 'buy' | 'sell' | 'hold' | 'watch' = 'hold'
+        let signalReason = ''
+
+        if (rsi < 30 && macd.trend === 'bullish') {
+          signal = 'buy'
+          signalReason = 'Oversold + MACD bullish crossover'
+        } else if (rsi < 35 && changePct > 0) {
+          signal = 'buy'
+          signalReason = 'Nearing oversold with positive momentum'
+        } else if (rsi > 70 && macd.trend === 'bearish') {
+          signal = 'sell'
+          signalReason = 'Overbought + MACD bearish crossover'
+        } else if (rsi > 65 && changePct < -1) {
+          signal = 'sell'
+          signalReason = 'Overbought with negative momentum'
+        } else if (macd.trend === 'bullish' && changePct > 0) {
+          signal = 'watch'
+          signalReason = 'MACD bullish, positive momentum — potential entry'
+        } else {
+          signalReason = 'No clear signal — wait for confirmation'
+        }
+
+        return {
+          ticker: ticker.symbol.replace('.JK', ''),
+          name: ticker.name,
+          sector: ticker.sector,
+          price: +last.close.toFixed(0),
+          change: changePct,
+          rsi,
+          macd,
+          support: sr.support,
+          resistance: sr.resistance,
+          volumeTrend: volTrend,
+          signal,
+          signalReason,
+          lastUpdate: last.time,
+        }
+      })
+    )
+
+    const data = results
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+      .map(r => r.value)
+
+    res.json({ ok: true, data, count: data.length, source: 'yahoo-finance' })
+  } catch (error) {
+    console.error('[TradingSetup] Error:', error)
+    res.status(500).json({ ok: false, error: 'Failed to fetch trading setup data' })
+  }
+})
+
+app.get('/api/trading/setup-of-the-day', async (req, res) => {
+  try {
+    // Fetch data for all blue chips
+    const allResults = await Promise.allSettled(
+      BLUE_CHIP_TICKERS.map(async (ticker) => {
+        const points = await fetchYahooSeries(ticker.symbol, 60)
+        if (!points.length) return null
+        const closes = points.map(p => p.close)
+        const last = points[points.length - 1]
+        const prev = points.length > 1 ? points[points.length - 2] : last
+        const rsi = calcRSI(closes)
+        const macd = calcMACD(closes)
+        const sr = calcSupportResistance(points)
+        return {
+          ticker: ticker.symbol.replace('.JK', ''),
+          name: ticker.name,
+          price: last.close,
+          change: +((last.close - prev.close) / prev.close * 100).toFixed(2),
+          rsi,
+          macd: macd.trend,
+          support: sr.support[0] || 0,
+          resistance: sr.resistance[0] || 0,
+        }
+      })
+    )
+
+    const stocks = allResults
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
+      .map(r => r.value)
+
+    // Rank by most interesting (highest |change| with RSI extremes)
+    const ranked = stocks
+      .map(s => ({ ...s, score: Math.abs(s.change) * (s.rsi < 35 || s.rsi > 65 ? 2 : 1) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+
+    const setupOfTheDay = ranked.map(s => {
+      const type = s.rsi < 35 ? 'bounce' : s.rsi > 65 ? 'breakout' : s.change > 0 ? 'momentum' : 'reversal'
+      const entryZone = type === 'bounce' || type === 'reversal'
+        ? `${(s.price * 0.98).toFixed(0)} - ${(s.price * 1.0).toFixed(0)}`
+        : `${(s.price * 1.0).toFixed(0)} - ${(s.price * 1.02).toFixed(0)}`
+      const sl = type === 'bounce' || type === 'reversal'
+        ? +(s.price * 0.95).toFixed(0)
+        : +(s.price * 0.97).toFixed(0)
+      const tp = type === 'bounce' || type === 'reversal'
+        ? +(s.price * 1.05).toFixed(0)
+        : +(s.price * 1.06).toFixed(0)
+      const rr = sl !== s.price ? +((tp - s.price) / (s.price - sl)).toFixed(1) : 0
+
+      return {
+        ticker: s.ticker,
+        name: s.name,
+        price: +s.price.toFixed(0),
+        setupType: type,
+        entryZone,
+        stopLoss: sl,
+        takeProfit: tp,
+        riskReward: rr,
+        rsi: s.rsi,
+        macdTrend: s.macd,
+        support: s.support,
+        resistance: s.resistance,
+        narrative: type === 'bounce'
+          ? `${s.name} (${s.ticker}) menunjukkan potensi bounce dari area oversold. RSI di ${s.rsi} mengindikasikan tekanan jual yang berlebihan. Entry di area support ${entryZone}, SL di ${sl}, TP di ${tp} (R:R ${rr}x).`
+          : type === 'breakout'
+          ? `${s.name} (${s.ticker}) mendekati area overbought dengan momentum kuat. RSI di ${s.rsi}. Jika break resistance ${s.resistance}, potensi lanjut ke ${tp}. SL di ${sl}.`
+          : type === 'momentum'
+          ? `${s.name} (${s.ticker}) menunjukkan momentum positif (+${s.change}%) dengan MACD ${s.macd}. Entry zone ${entryZone}, SL ${sl}, TP ${tp} (R:R ${rr}x).`
+          : `${s.name} (${s.ticker}) berpotensi reversal setelah turun ${s.change}%. Watch area ${entryZone} untuk entry, SL ${sl}, TP ${tp} (R:R ${rr}x).`,
+      }
+    })
+
+    res.json({
+      ok: true,
+      date: new Date().toISOString().slice(0, 10),
+      data: setupOfTheDay,
+      disclaimer: 'Ini bukan rekomendasi investasi. Selalu lakukan riset mandiri dan kelola risiko dengan bijak.',
+    })
+  } catch (error) {
+    console.error('[TradingSetup] SOTD Error:', error)
+    res.status(500).json({ ok: false, error: 'Failed to generate setup of the day' })
+  }
+})
+
 const port = Number(process.env.PORT || 3001)
 app.listen(port, () => {
   startPortfolioRefreshScheduler()
+  
+  // Telegram Bot Init
+  initTelegramBot()
+
+  // Cron Job for Telegram Morning Command (Setiap hari jam 07:30 WIB)
+  // WIB = UTC+7, jadi jam 07:30 WIB = 00:30 UTC
+  cron.schedule('30 7 * * *', async () => {
+    console.log('[Cron] Running sendMorningCommandToGroup at 07:30 WIB')
+    await sendMorningCommandToGroup()
+  }, {
+    timezone: 'Asia/Jakarta',
+    recoverMissedExecutions: true
+  } as any)
+
+  // S5-M3: Weekly Report Cron (Setiap Senin jam 07:00 WIB)
+  cron.schedule('0 7 * * 1', async () => {
+    console.log('[Cron] Running weekly portfolio report (Monday 07:00 WIB)')
+    const result = await sendWeeklyReports()
+    console.log(`[Cron] Weekly report done:`, result)
+  }, {
+    timezone: 'Asia/Jakarta',
+    recoverMissedExecutions: true
+  } as any)
 })

@@ -68,7 +68,7 @@ type RssNewsItem = {
 const PROVIDER_TIMEOUT_MS = Number(process.env.NEWS_PROVIDER_TIMEOUT_MS || process.env.PROVIDER_TIMEOUT_MS || 3500)
 const CACHE_TTL_MS = Number(process.env.NEWS_CACHE_TTL_MS || 15 * 60 * 1000)
 
-let lastGoodCache: { response: MarketNewsResponse; storedAt: number } | null = null
+const cache = new Map<string, { response: MarketNewsResponse; storedAt: number }>()
 
 const normalizeSymbol = (symbol: string) => symbol.trim().toUpperCase()
 
@@ -307,101 +307,66 @@ const selectItems = (items: MarketNewsItem[], requestedSymbols: string[], limit:
     .slice(0, limit)
 }
 
-const alphaVantageSymbols = (symbols: string[]) =>
-  normalizeSymbols(symbols)
-    .map((symbol) => {
-      if (symbol === 'BTC-USD') return 'BTCUSD'
-      if (symbol === 'GC=F' || symbol === 'XAUUSD' || symbol === 'XAU/USD') return 'GLD'
-      if (symbol === '^JKSE' || symbol === 'IHSG') return ''
-      if (symbol.endsWith('.JK')) return ''
-      return symbol.replace(/[^A-Z0-9]/g, '')
-    })
-    .filter(Boolean)
-    .slice(0, 8)
-
-const fetchFromAlphaVantage = async (requestedSymbols: string[], limit: number, deeperReason: boolean) => {
-  const apiKey = process.env.ALPHAVANTAGE_API_KEY?.trim()
-  if (!apiKey) return null
-
-  const avSymbols = alphaVantageSymbols(requestedSymbols)
-  const urls = [
-    avSymbols.length
-      ? `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(avSymbols.join(','))}&limit=${limit * 3}&sort=LATEST&apikey=${encodeURIComponent(apiKey)}`
-      : '',
-    `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&topics=financial_markets,economy_macro,blockchain&limit=${limit * 3}&sort=LATEST&apikey=${encodeURIComponent(apiKey)}`,
-  ].filter(Boolean)
-
-  for (const url of urls) {
-    const response = await axios.get<AlphaVantageNewsResponse>(url, { timeout: PROVIDER_TIMEOUT_MS })
-    const feed = response.data?.feed || []
-    const mapped = feed
-      .map((item) => mapAlphaVantageItem(item, requestedSymbols, deeperReason))
-      .filter((item): item is MarketNewsItem => item !== null)
-    if (mapped.length) return selectItems(mapped, requestedSymbols, limit)
-  }
-
-  return []
-}
-
-const fetchFromMarketaux = async (requestedSymbols: string[], country: string, limit: number, deeperReason: boolean) => {
-  const token = process.env.MARKETAUX_API_TOKEN?.trim()
-  if (!token) return null
-
+const fetchFromOpenBB = async (requestedSymbols: string[], limit: number, deeperReason: boolean): Promise<MarketNewsItem[]> => {
   const symbols = normalizeSymbols(requestedSymbols)
-    .map((symbol) => (symbol === 'GC=F' || symbol === 'XAUUSD' || symbol === 'XAU/USD' ? 'GLD' : symbol))
-    .filter((symbol) => symbol !== '^JKSE' && symbol !== 'IHSG')
-    .slice(0, 12)
+    .filter(s => s !== '^JKSE' && s !== 'IHSG' && !s.endsWith('.JK'))
+    .slice(0, 5)
 
-  const params: Record<string, string | number> = {
-    api_token: token,
-    language: 'en',
-    limit: Math.min(50, limit * 4),
-    sort: 'published_desc',
-  }
-  if (symbols.length) params.symbols = symbols.join(',')
-  if (country) params.countries = country.toLowerCase()
+  if (symbols.length === 0) return []
 
-  const response = await axios.get<MarketauxNewsResponse>('https://api.marketaux.com/v1/news/all', {
-    timeout: PROVIDER_TIMEOUT_MS,
-    params,
-  })
-  const mapped = (response.data?.data || [])
-    .map((item) => mapMarketauxItem(item, requestedSymbols, deeperReason))
-    .filter((item): item is MarketNewsItem => item !== null)
+  try {
+    const symbolParam = symbols.join(',')
+    const url = `http://127.0.0.1:6900/api/v1/news/company?symbol=${encodeURIComponent(symbolParam)}&limit=${limit * 2}&provider=yfinance`
+    const response = await axios.get(url, { timeout: PROVIDER_TIMEOUT_MS })
+    const results = response.data?.results || []
 
-  return selectItems(mapped, requestedSymbols, limit)
-}
-
-const fetchFromGoogleNewsRss = async (requestedSymbols: string[], limit: number, deeperReason: boolean) => {
-  const queries = buildGoogleNewsQueries(requestedSymbols)
-  const results: MarketNewsItem[] = []
-
-  for (const query of queries) {
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:14d`)}&hl=id&gl=ID&ceid=ID:id`
-    const response = await axios.get<string>(url, {
-      timeout: PROVIDER_TIMEOUT_MS,
-      responseType: 'text',
-      headers: {
-        'User-Agent': 'TingAI/2.3.1.1 market-news',
-      },
+    const mapped = results.map((item: any) => {
+      const topic = inferTopic(item.title || '', item.summary || item.text || '', [item.symbol || ''])
+      return {
+        title: item.title,
+        source: item.source || 'OpenBB Terminal',
+        url: item.url,
+        publishedAt: toIsoDate(item.date),
+        relatedSymbols: [item.symbol || symbols[0]],
+        topic,
+        relevanceReason: getRelevanceReason(topic, [item.symbol || symbols[0]], requestedSymbols, deeperReason),
+        dataStatus: 'live',
+      }
     })
-    const mapped = parseGoogleNewsRss(response.data)
-      .map((item) => mapRssItem(item, requestedSymbols, deeperReason))
-      .filter((item): item is MarketNewsItem => item !== null)
-    results.push(...mapped)
-    if (results.length >= limit) break
-  }
 
-  return selectItems(results, requestedSymbols, limit)
+    return selectItems(mapped, requestedSymbols, limit)
+  } catch (err) {
+    console.error('[OpenBB News Error]', err)
+    return []
+  }
 }
 
-const cachedResponse = (message: string): MarketNewsResponse | null => {
-  if (!lastGoodCache) return null
-  const isFreshEnough = Date.now() - lastGoodCache.storedAt <= CACHE_TTL_MS
+const fetchFromGoogleNews = async (requestedSymbols: string[], limit: number, deeperReason: boolean): Promise<MarketNewsItem[]> => {
+  try {
+    const queries = buildGoogleNewsQueries(requestedSymbols)
+    const promises = queries.map(async (q) => {
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q + ' when:7d')}&hl=id&gl=ID&ceid=ID:id`
+      const res = await axios.get(url, { timeout: PROVIDER_TIMEOUT_MS })
+      const items = parseGoogleNewsRss(res.data)
+      return items.map((item) => mapRssItem(item, requestedSymbols, deeperReason)).filter((item): item is MarketNewsItem => item !== null)
+    })
+    const results = await Promise.allSettled(promises)
+    const allItems = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+    return selectItems(allItems, requestedSymbols, limit)
+  } catch (err) {
+    console.error('[Google News Error]', err)
+    return []
+  }
+}
+
+const cachedResponse = (cacheKey: string, message: string): MarketNewsResponse | null => {
+  const cached = cache.get(cacheKey)
+  if (!cached) return null
+  const isFreshEnough = Date.now() - cached.storedAt <= CACHE_TTL_MS
   if (!isFreshEnough) return null
   return {
-    ...lastGoodCache.response,
-    items: lastGoodCache.response.items.map((item) => ({ ...item, dataStatus: 'cached' })),
+    ...cached.response,
+    items: cached.response.items.map((item) => ({ ...item, dataStatus: 'cached' })),
     dataStatus: 'cached',
     message,
   }
@@ -415,76 +380,40 @@ export const getMarketNews = async (input: {
 }): Promise<MarketNewsResponse> => {
   const requestedSymbols = normalizeSymbols(input.symbols)
   const limit = Math.max(1, Math.min(Number(input.limit || 6), 12))
-  const country = (input.country || '').trim()
   const deeperReason = input.pro === true
-
-  if (!process.env.ALPHAVANTAGE_API_KEY?.trim() && !process.env.MARKETAUX_API_TOKEN?.trim()) {
-    return (
-      cachedResponse('Sumber berita sedang tidak tersedia. Menampilkan cache terakhir.') || {
-        items: [],
-        dataStatus: 'unavailable',
-        lastUpdated: null,
-        message: 'Sumber berita belum dikonfigurasi.',
-      }
-    )
-  }
+  const cacheKey = requestedSymbols.join(',')
 
   try {
-    const themes = portfolioThemes(requestedSymbols)
-    const providers = [
-      ...(themes.hasIdx || themes.hasBanking
-        ? [() => fetchFromGoogleNewsRss(requestedSymbols, limit, deeperReason)]
-        : []),
-      () => fetchFromAlphaVantage(requestedSymbols, limit, deeperReason),
-      () => fetchFromMarketaux(requestedSymbols, country, limit, deeperReason),
-      ...(!themes.hasIdx && !themes.hasBanking
-        ? [() => fetchFromGoogleNewsRss(requestedSymbols, limit, deeperReason)]
-        : []),
-    ]
-
-    let sawConfiguredProvider = false
-
-    for (const provider of providers) {
-      const items = await provider()
-      if (items === null) continue
-      sawConfiguredProvider = true
-      if (!items.length) continue
-
+    let items = await fetchFromOpenBB(requestedSymbols, limit, deeperReason)
+    
+    // Fallback to Google News RSS if OpenBB doesn't have news (e.g. for IHSG/.JK stocks)
+    if (items.length === 0) {
+      items = await fetchFromGoogleNews(requestedSymbols, limit, deeperReason)
+    }
+    
+    if (items.length > 0) {
       const response: MarketNewsResponse = {
         items,
-        dataStatus: 'delayed',
+        dataStatus: 'live',
         lastUpdated: new Date().toISOString(),
         message: null,
       }
-      lastGoodCache = { response, storedAt: Date.now() }
+      cache.set(cacheKey, { response, storedAt: Date.now() })
       return response
     }
 
-    if (sawConfiguredProvider) {
-      return {
-        items: [],
-        dataStatus: 'delayed',
-        lastUpdated: new Date().toISOString(),
-        message: 'Tidak ada berita baru yang cukup relevan saat ini.',
-      }
+    return cachedResponse(cacheKey, 'Menggunakan data terakhir (cache) dari OpenBB Terminal.') || {
+      items: [],
+      dataStatus: 'unavailable',
+      lastUpdated: null,
+      message: 'Tidak ada berita terbaru saat ini.',
     }
-
-    return (
-      cachedResponse('Sumber berita sedang tidak tersedia. Menampilkan cache terakhir.') || {
-        items: [],
-        dataStatus: 'unavailable',
-        lastUpdated: null,
-        message: 'Sumber berita belum tersedia.',
-      }
-    )
-  } catch {
-    return (
-      cachedResponse('Sumber berita sedang tidak tersedia. Menampilkan cache terakhir.') || {
-        items: [],
-        dataStatus: 'unavailable',
-        lastUpdated: null,
-        message: 'Sumber berita sedang tidak tersedia.',
-      }
-    )
+  } catch (error) {
+    return cachedResponse(cacheKey, 'Koneksi terputus. Menampilkan cache terakhir.') || {
+      items: [],
+      dataStatus: 'unavailable',
+      lastUpdated: null,
+      message: 'Layanan berita sedang tidak bisa diakses.',
+    }
   }
 }
